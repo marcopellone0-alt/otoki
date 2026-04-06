@@ -12,7 +12,8 @@ export async function GET(request: Request) {
   const startDateTime = `${from}T00:00:00Z`;
   const endDateTime = `${to}T23:59:59Z`;
 
-  const tmUrl = `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${apiKey}&city=Melbourne&classificationName=Music&size=50&sort=date,asc&startDateTime=${startDateTime}&endDateTime=${endDateTime}`;
+  // Changed from city=Melbourne to stateCode=VIC to catch all Melbourne suburbs
+  const tmUrl = `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${apiKey}&stateCode=VIC&countryCode=AU&classificationName=Music&size=50&sort=date,asc&startDateTime=${startDateTime}&endDateTime=${endDateTime}`;
 
   try {
     const response = await fetch(tmUrl);
