@@ -53,7 +53,7 @@ export default function Home() {
   const handleBuildMixtape = async () => {
     setIsBuildingMixtape(true);
     try {
-      const response = await fetch('/api/mixtape', {
+      const response = await fetch('/api/yt-mixtape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gigs })
@@ -61,7 +61,7 @@ export default function Home() {
 
       if (response.status === 401) {
         sessionStorage.setItem("otoki_recovery_gigs", JSON.stringify(gigs));
-        window.location.href = '/api/login';
+        window.location.href = '/api/yt-login';
         return;
       }
 
