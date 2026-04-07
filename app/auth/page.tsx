@@ -12,6 +12,11 @@ export default function Auth() {
   const [message, setMessage] = useState("");
 
   const handleSubmit = async () => {
+    const finalEmail = email || (document.querySelector('input[type="email"]') as HTMLInputElement)?.value || "";
+    const finalPassword = password || (document.querySelector('input[type="password"]') as HTMLInputElement)?.value || "";
+    if (!finalEmail || !finalPassword) return;
+    setEmail(finalEmail);
+    setPassword(finalPassword);
     setLoading(true);
     setMessage("");
 
@@ -19,8 +24,8 @@ export default function Auth() {
       if (isSignUp) {
         // Sign up
         const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
+          email: finalEmail,
+          password: finalPassword,
         });
 
         if (error) {
@@ -41,8 +46,8 @@ export default function Auth() {
       } else {
         // Sign in
         const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
+          email: finalEmail,
+          password: finalPassword,
         });
 
         if (error) {
@@ -118,9 +123,9 @@ export default function Auth() {
 
           <button
             onClick={handleSubmit}
-            disabled={loading || !email || !password}
+            disabled={loading}
             className={`w-full font-extrabold text-lg rounded-full py-4 transition-colors ${
-              loading || !email || !password
+              loading
                 ? "bg-neutral-800 text-neutral-500 cursor-not-allowed"
                 : "bg-[#FF0000] hover:bg-[#CC0000] text-white shadow-lg shadow-[#FF0000]/20"
             }`}

@@ -15,10 +15,69 @@ export default function Home() {
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(nextWeek);
   const [user, setUser] = useState<any>(null);
+  const [rsvps, setRsvps] = useState<Set<string>>(new Set());
+  const [rsvpCounts, setRsvpCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
   }, []);
+
+  // Load RSVP counts for all gigs, and user's own RSVPs
+  const loadRsvps = async (gigList: any[]) => {
+    const gigIds = gigList.map((g: any) => g.id);
+    
+    // Get counts for each gig
+    const { data: allRsvps } = await supabase
+      .from('gig_rsvps')
+      .select('gig_id')
+      .in('gig_id', gigIds);
+    
+    const counts: Record<string, number> = {};
+    allRsvps?.forEach(r => {
+      counts[r.gig_id] = (counts[r.gig_id] || 0) + 1;
+    });
+    setRsvpCounts(counts);
+
+    // Get current user's RSVPs
+    if (user) {
+      const { data: myRsvps } = await supabase
+        .from('gig_rsvps')
+        .select('gig_id')
+        .eq('user_id', user.id)
+        .in('gig_id', gigIds);
+      
+      setRsvps(new Set(myRsvps?.map(r => r.gig_id) || []));
+    }
+  };
+
+  const toggleRsvp = async (gig: any) => {
+    if (!user) {
+      window.location.href = '/auth';
+      return;
+    }
+
+    const gigId = gig.id;
+    
+    if (rsvps.has(gigId)) {
+      // Remove RSVP
+      await supabase.from('gig_rsvps').delete().match({ user_id: user.id, gig_id: gigId });
+      rsvps.delete(gigId);
+      setRsvps(new Set(rsvps));
+      setRsvpCounts(prev => ({ ...prev, [gigId]: (prev[gigId] || 1) - 1 }));
+    } else {
+      // Add RSVP
+      await supabase.from('gig_rsvps').insert({
+        user_id: user.id,
+        gig_id: gigId,
+        gig_name: gig.name,
+        gig_date: gig.dates?.start?.localDate || null,
+        venue_name: gig._embedded?.venues?.[0]?.name || null,
+      });
+      rsvps.add(gigId);
+      setRsvps(new Set(rsvps));
+      setRsvpCounts(prev => ({ ...prev, [gigId]: (prev[gigId] || 0) + 1 }));
+    }
+  };
 
   useEffect(() => {
     const stashedGigs = sessionStorage.getItem("otoki_recovery_gigs");
@@ -48,6 +107,7 @@ export default function Home() {
       
       setGigs(uniqueGigs);
       setShowDashboard(true);
+      loadRsvps(uniqueGigs);
     } catch (error) {
       console.error("Error fetching gigs:", error);
       alert("Whoops, couldn't grab the gigs. Try again.");
@@ -124,14 +184,27 @@ export default function Home() {
                       · {gig._embedded?.venues?.[0]?.name || "Venue TBA"}
                     </p>
                   </div>
-                  <a 
-                    href={gig.url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="bg-white text-black font-bold px-4 py-2 rounded-full text-sm hover:bg-neutral-200 shrink-0"
-                  >
-                    Tickets
-                  </a>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button
+                      onClick={() => toggleRsvp(gig)}
+                      className={`font-bold px-4 py-2 rounded-full text-sm transition-colors ${
+                        rsvps.has(gig.id)
+                          ? "bg-[#FF0000] text-white"
+                          : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
+                      }`}
+                    >
+                      {rsvps.has(gig.id) ? "Going ✓" : "I'm going"}
+                      {rsvpCounts[gig.id] ? ` · ${rsvpCounts[gig.id]}` : ""}
+                    </button>
+                    <a 
+                      href={gig.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="bg-white text-black font-bold px-4 py-2 rounded-full text-sm hover:bg-neutral-200 text-center"
+                    >
+                      Tickets
+                    </a>
+                  </div>
                 </div>
               ))
             ) : (
