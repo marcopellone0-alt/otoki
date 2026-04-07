@@ -87,9 +87,30 @@ export async function POST(request: Request) {
           continue;
         }
 
-        const videoId = searchData.items[0].id.videoId;
-        const videoTitle = searchData.items[0].snippet.title;
-        console.log(`[Otoki] Found: "${videoTitle}" for artist "${artistName}"`);
+        const topResult = searchData.items[0];
+        const videoId = topResult.id.videoId;
+        const videoTitle = topResult.snippet.title;
+        const channelTitle = topResult.snippet.channelTitle;
+
+        // Verify the result is actually related to the artist we searched for
+        const normalize = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9 ]/g, '').trim();
+        const artistNorm = normalize(artistName);
+        const channelNorm = normalize(channelTitle);
+        const titleNorm = normalize(videoTitle);
+
+        const stripSpaces = (s: string) => s.replace(/\s/g, '');
+        const isRelevant = channelNorm.includes(artistNorm)
+          || artistNorm.includes(channelNorm)
+          || stripSpaces(channelNorm).includes(stripSpaces(artistNorm))
+          || stripSpaces(artistNorm).includes(stripSpaces(channelNorm))
+          || titleNorm.startsWith(artistNorm);
+
+        if (!isRelevant) {
+          console.warn(`[Otoki] Skipping mismatch: searched "${artistName}", got "${videoTitle}" by channel "${channelTitle}"`);
+          continue;
+        }
+
+        console.log(`[Otoki] Found: "${videoTitle}" (channel: ${channelTitle}) for artist "${artistName}"`);
 
         // Add video to playlist
         const addRes = await fetch(`${ytApi}/playlistItems?part=snippet`, {

@@ -85,7 +85,7 @@ export default function Home() {
         <div className="max-w-md w-full space-y-8">
           
           <div className="text-center space-y-2">
-            <h2 className="text-3xl font-bold">Your mixtape is live.</h2>
+            <h2 className="text-3xl font-bold">Your gig playlist is ready.</h2>
             <p className="text-neutral-400">
               Melbourne • {new Date(fromDate + 'T00:00:00').toLocaleDateString('en-AU')} → {new Date(toDate + 'T00:00:00').toLocaleDateString('en-AU')}
             </p>
@@ -97,10 +97,10 @@ export default function Home() {
             className={`w-full font-extrabold text-xl rounded-full py-5 flex items-center justify-center transition-colors ${
               isBuildingMixtape 
                 ? "bg-neutral-800 text-neutral-500 cursor-not-allowed" 
-                : "bg-[#1DB954] hover:bg-[#1ed760] text-black shadow-lg shadow-[#1DB954]/20"
+                : "bg-[#FF0000] hover:bg-[#CC0000] text-white shadow-lg shadow-[#FF0000]/20"
             }`}
           >
-            {isBuildingMixtape ? "BUILDING MIXTAPE..." : "SAVE MIXTAPE TO SPOTIFY"}
+            {isBuildingMixtape ? "BUILDING MIXTAPE..." : "SAVE MIXTAPE TO YOUTUBE MUSIC"}
           </button>
 
           <div className="space-y-4 pt-4">
@@ -186,7 +186,7 @@ export default function Home() {
             className={`w-full font-extrabold text-xl rounded-full py-5 transition-colors ${
               isGenerating 
                 ? "bg-neutral-800 text-neutral-500 cursor-not-allowed" 
-                : "bg-[#1DB954] hover:bg-[#1ed760] text-black shadow-lg shadow-[#1DB954]/20"
+                : "bg-[#FF0000] hover:bg-[#CC0000] text-white shadow-lg shadow-[#FF0000]/20"
             }`}
           >
             {isGenerating ? "FINDING GIGS..." : "GENERATE PLAYLIST"}
