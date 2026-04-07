@@ -193,7 +193,12 @@ export default function Home() {
           </button>
         </div>
 
-      </div>
+</div>
+      <footer className="absolute bottom-6">
+        <a href="/privacy" className="text-neutral-600 hover:text-neutral-400 text-xs transition-colors">
+          Privacy Policy
+        </a>
+      </footer>
     </main>
   );
 }
