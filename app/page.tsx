@@ -87,7 +87,7 @@ export default function Home() {
           <div className="text-center space-y-2">
             <h2 className="text-3xl font-bold">Your mixtape is live.</h2>
             <p className="text-neutral-400">
-              Melbourne • {fromDate} → {toDate}
+              Melbourne • {new Date(fromDate + 'T00:00:00').toLocaleDateString('en-AU')} → {new Date(toDate + 'T00:00:00').toLocaleDateString('en-AU')}
             </p>
           </div>
 
@@ -110,9 +110,12 @@ export default function Home() {
               gigs.map((gig: any) => (
                 <div key={gig.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-xl flex justify-between items-center">
                   <div className="pr-4">
-                    <p className="font-bold text-lg line-clamp-1">{gig.name}</p>
-                    <p className="text-neutral-400 text-sm line-clamp-1">
-                      {gig._embedded?.venues?.[0]?.name || "Venue TBA"}
+                    <p className="font-bold text-lg line-clamp-1" title={gig.name}>{gig.name}</p>
+                     <p className="text-neutral-400 text-sm line-clamp-1">
+                      {gig.dates?.start?.localDate
+                        ? new Date(gig.dates.start.localDate + 'T00:00:00').toLocaleDateString('en-AU')
+                        : ""}{" "}
+                      · {gig._embedded?.venues?.[0]?.name || "Venue TBA"}
                     </p>
                   </div>
                   <a 
