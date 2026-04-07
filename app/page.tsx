@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
 
 export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -13,6 +14,11 @@ export default function Home() {
   const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(nextWeek);
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+  }, []);
 
   useEffect(() => {
     const stashedGigs = sessionStorage.getItem("otoki_recovery_gigs");
@@ -147,10 +153,22 @@ export default function Home() {
           <p className="text-neutral-400 font-medium text-lg">
             Hear who's playing near you tonight.
           </p>
+            {user ? (
+              <button 
+                onClick={async () => { await supabase.auth.signOut(); setUser(null); }}
+                className="text-neutral-500 hover:text-white text-sm transition-colors"
+              >
+                Signed in as {user.email} · Log out
+              </button>
+            ) : (
+              <a href="/auth" className="text-neutral-500 hover:text-white text-sm transition-colors">
+                Sign in
+              </a>
+            )}
         </div>
 
         <div className="space-y-4">
-          <select className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-4 text-center focus:outline-none focus:ring-2 focus:ring-[#1DB954] appearance-none">
+          <select className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-4 text-center focus:outline-none focus:ring-2 focus:ring-[#FF0000] appearance-none">
             <option value="CBD">Melbourne CBD</option>
             <option value="Inner North">Inner North</option>
             <option value="Werribee">Werribee</option>
@@ -165,7 +183,7 @@ export default function Home() {
                 value={fromDate}
                 min={today}
                 onChange={e => setFromDate(e.target.value)}
-                className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#1DB954]"
+                className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000]"
               />
             </div>
             <div className="flex-1 space-y-1">
@@ -175,7 +193,7 @@ export default function Home() {
                 value={toDate}
                 min={fromDate}
                 onChange={e => setToDate(e.target.value)}
-                className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#1DB954]"
+                className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000]"
               />
             </div>
           </div>
