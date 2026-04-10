@@ -15,6 +15,7 @@ export default function Home() {
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(nextWeek);
   const [user, setUser] = useState<any>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [rsvps, setRsvps] = useState<Set<string>>(new Set());
   const [rsvpCounts, setRsvpCounts] = useState<Record<string, number>>({});
   const [viewingGig, setViewingGig] = useState<any>(null);
@@ -24,6 +25,38 @@ export default function Home() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
   }, []);
+
+  // Load unread message count and subscribe to new messages
+  useEffect(() => {
+    if (!user) return;
+
+    const loadUnread = async () => {
+      const { count } = await supabase
+        .from("messages")
+        .select("*", { count: "exact", head: true })
+        .eq("receiver_id", user.id)
+        .is("read_at", null);
+      setUnreadCount(count || 0);
+    };
+
+    loadUnread();
+
+    const channel = supabase
+      .channel("nav-unread")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "messages",
+          filter: `receiver_id=eq.${user.id}`,
+        },
+        () => loadUnread()
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
 
   // Load RSVP counts for all gigs, and user's own RSVPs
   const loadRsvps = async (gigList: any[]) => {
@@ -305,8 +338,13 @@ export default function Home() {
                   Profile
                 </a>
                 <span className="text-neutral-700">·</span>
-                <a href="/messages" className="text-neutral-500 hover:text-white text-sm transition-colors">
+                <a href="/messages" className="text-neutral-500 hover:text-white text-sm transition-colors relative">
                   Messages
+                  {unreadCount > 0 && (
+                    <span className="ml-1 bg-[#FF0000] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      {unreadCount}
+                    </span>
+                  )}
                 </a>
                 <span className="text-neutral-700">·</span>
                 <button 

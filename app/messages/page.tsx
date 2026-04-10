@@ -12,6 +12,12 @@ export default function Messages() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const activeChatRef = useRef<any>(null);
+
+  // Keep a ref to activeChat so the realtime callback sees the current value
+  useEffect(() => {
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
 
   useEffect(() => {
     const load = async () => {
@@ -27,6 +33,45 @@ export default function Messages() {
     load();
   }, []);
 
+  // Subscribe to real-time messages
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel("messages-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `receiver_id=eq.${user.id}`,
+        },
+        async (payload) => {
+          const newMsg = payload.new as any;
+          const currentChat = activeChatRef.current;
+
+          // If we're in the chat with this sender, append and mark as read
+          if (currentChat && currentChat.partner_id === newMsg.sender_id) {
+            setMessages(prev => [...prev, newMsg]);
+            await supabase
+              .from("messages")
+              .update({ read_at: new Date().toISOString() })
+              .eq("id", newMsg.id);
+            setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+          }
+
+          // Always reload conversations list to update previews and unread counts
+          loadConversations(user.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   // Check URL for ?to= param (coming from a profile page)
   useEffect(() => {
     if (!user) return;
@@ -41,7 +86,7 @@ export default function Messages() {
     // Get all messages involving this user
     const { data: allMessages } = await supabase
       .from("messages")
-      .select("sender_id, receiver_id, content, created_at")
+      .select("id, sender_id, receiver_id, content, created_at, read_at")
       .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
       .order("created_at", { ascending: false });
 
@@ -57,9 +102,15 @@ export default function Messages() {
       if (!partners.has(partnerId)) {
         partners.set(partnerId, {
           partner_id: partnerId,
-          last_message: msg.content,
+          last_message: msg.sender_id === userId ? "You: " + msg.content : msg.content,
           last_time: msg.created_at,
+          unread_count: 0,
         });
+      }
+      // Count unread messages (sent to me, not yet read)
+      if (msg.receiver_id === userId && !msg.read_at) {
+        const convo = partners.get(partnerId);
+        convo.unread_count += 1;
       }
     }
 
@@ -67,12 +118,13 @@ export default function Messages() {
     const partnerIds = Array.from(partners.keys());
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("id, display_name")
+      .select("id, display_name, avatar_url")
       .in("id", partnerIds);
 
     const convos = Array.from(partners.values()).map(c => ({
       ...c,
       display_name: profiles?.find(p => p.id === c.partner_id)?.display_name || "Anonymous",
+      avatar_url: profiles?.find(p => p.id === c.partner_id)?.avatar_url || null,
     }));
 
     setConversations(convos);
@@ -84,13 +136,14 @@ export default function Messages() {
     // Get partner profile
     const { data: profile } = await supabase
       .from("profiles")
-      .select("id, display_name")
+      .select("id, display_name, avatar_url")
       .eq("id", partnerId)
       .single();
 
     setActiveChat({
       partner_id: partnerId,
       display_name: profile?.display_name || "Anonymous",
+      avatar_url: profile?.avatar_url || null,
     });
 
     // Load messages between these two users
@@ -111,6 +164,9 @@ export default function Messages() {
       .eq("sender_id", partnerId)
       .eq("receiver_id", user.id)
       .is("read_at", null);
+
+    // Refresh conversations to clear unread count
+    loadConversations(user.id);
 
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
@@ -155,6 +211,13 @@ export default function Messages() {
           >
             ←
           </button>
+          {activeChat.avatar_url ? (
+            <img src={activeChat.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-sm font-bold text-neutral-400">
+              {activeChat.display_name ? activeChat.display_name[0].toUpperCase() : "?"}
+            </div>
+          )}
           <a href={`/profile/${activeChat.partner_id}`} className="font-bold hover:text-red-400 transition-colors">
             {activeChat.display_name}
           </a>
@@ -195,7 +258,7 @@ export default function Messages() {
             type="text"
             value={newMessage}
             onChange={e => setNewMessage(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && sendMessage()}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
             placeholder="Type a message..."
             className="flex-1 bg-neutral-900 border border-neutral-800 text-white rounded-full px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000] placeholder:text-neutral-600"
           />
@@ -240,15 +303,35 @@ export default function Messages() {
               <button
                 key={convo.partner_id}
                 onClick={() => openChat(convo.partner_id)}
-                className="w-full bg-neutral-900 border border-neutral-800 p-4 rounded-xl flex justify-between items-center hover:bg-neutral-800 transition-colors text-left"
+                className="w-full bg-neutral-900 border border-neutral-800 p-4 rounded-xl flex items-center gap-3 hover:bg-neutral-800 transition-colors text-left"
               >
-                <div className="min-w-0">
-                  <p className="font-bold">{convo.display_name}</p>
-                  <p className="text-neutral-500 text-sm truncate">{convo.last_message}</p>
+                {convo.avatar_url ? (
+                  <img src={convo.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover shrink-0" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center text-lg font-bold text-neutral-400 shrink-0">
+                    {convo.display_name ? convo.display_name[0].toUpperCase() : "?"}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className={`truncate ${convo.unread_count > 0 ? "font-bold" : "font-semibold"}`}>
+                      {convo.display_name}
+                    </p>
+                    <p className="text-neutral-600 text-xs shrink-0">
+                      {new Date(convo.last_time).toLocaleDateString("en-AU")}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-0.5">
+                    <p className={`text-sm truncate ${convo.unread_count > 0 ? "text-white" : "text-neutral-500"}`}>
+                      {convo.last_message}
+                    </p>
+                    {convo.unread_count > 0 && (
+                      <span className="bg-[#FF0000] text-white text-xs font-bold px-2 py-0.5 rounded-full shrink-0 min-w-[20px] text-center">
+                        {convo.unread_count}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <p className="text-neutral-600 text-xs shrink-0 ml-3">
-                  {new Date(convo.last_time).toLocaleDateString("en-AU")}
-                </p>
               </button>
             ))}
           </div>
