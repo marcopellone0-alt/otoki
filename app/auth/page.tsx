@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 export default function Auth() {
@@ -11,21 +11,8 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  // ===== DIAGNOSTIC: confirms React hydrated and mounted =====
-  useEffect(() => {
-    if (typeof window !== "undefined" && (window as any).__diagLog) {
-      (window as any).__diagLog("✅ React hydrated — Auth component mounted");
-    }
-  }, []);
-
   const handleSubmit = async (e?: any) => {
     if (e) e.preventDefault();
-
-    // DIAGNOSTIC: log that the click fired
-    if (typeof window !== "undefined" && (window as any).__diagLog) {
-      (window as any).__diagLog("🔵 handleSubmit fired");
-    }
-
     const emailInput = document.querySelector(
       'input[type="email"]'
     ) as HTMLInputElement;
@@ -142,7 +129,9 @@ export default function Auth() {
           {message && (
             <p
               className={`text-sm text-center ${
-                message.includes("created") ? "text-green-400" : "text-red-400"
+                message.includes("created")
+                  ? "text-green-400"
+                  : "text-red-400"
               }`}
             >
               {message}
@@ -173,10 +162,6 @@ export default function Auth() {
           <button
             type="button"
             onClick={() => {
-              // DIAGNOSTIC
-              if (typeof window !== "undefined" && (window as any).__diagLog) {
-                (window as any).__diagLog("🔵 Toggle clicked — isSignUp will become: " + !isSignUp);
-              }
               setIsSignUp(!isSignUp);
               setMessage("");
             }}

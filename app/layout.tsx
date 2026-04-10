@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Script from "next/script";
 import "./globals.css";
-import { ErrorBoundary } from "./ErrorBoundary";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,11 +32,8 @@ export default function RootLayout({
           name="impact-site-verification"
           content="e6bc91a8-4bae-4db4-b05a-0e711987c47f"
         />
-        <Script src="/diag.js" strategy="beforeInteractive" />
       </head>
-      <body className="min-h-full flex flex-col">
-        <ErrorBoundary>{children}</ErrorBoundary>
-      </body>
+      <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
 }
