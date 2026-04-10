@@ -3,6 +3,24 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useParams } from "next/navigation";
+import { ArrowLeft, MessageCircle } from "lucide-react";
+
+// Helper: format a gig date for the stacked date block on cards
+const formatGigDate = (dateStr: string | null | undefined) => {
+  if (!dateStr) return { day: "TBA", date: "", month: "", isToday: false, isTomorrow: false };
+  const date = new Date(dateStr + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return {
+    day: date.toLocaleDateString("en-AU", { weekday: "short" }).toUpperCase(),
+    date: date.getDate().toString(),
+    month: date.toLocaleDateString("en-AU", { month: "short" }).toUpperCase(),
+    isToday: date.getTime() === today.getTime(),
+    isTomorrow: date.getTime() === tomorrow.getTime(),
+  };
+};
 
 export default function PublicProfile() {
   const params = useParams();
@@ -10,6 +28,7 @@ export default function PublicProfile() {
 
   const [profile, setProfile] = useState<any>(null);
   const [upcomingGigs, setUpcomingGigs] = useState<any[]>([]);
+  const [myRsvps, setMyRsvps] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
 
@@ -43,6 +62,18 @@ export default function PublicProfile() {
         .order("gig_date", { ascending: true });
 
       setUpcomingGigs(rsvpData || []);
+
+      // Load current user's own RSVPs to determine matches
+      if (user && rsvpData && rsvpData.length > 0) {
+        const gigIds = rsvpData.map((r: any) => r.gig_id);
+        const { data: mineData } = await supabase
+          .from("gig_rsvps")
+          .select("gig_id")
+          .eq("user_id", user.id)
+          .in("gig_id", gigIds);
+        setMyRsvps(new Set(mineData?.map((r: any) => r.gig_id) || []));
+      }
+
       setLoading(false);
     };
     load();
@@ -50,89 +81,293 @@ export default function PublicProfile() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-neutral-950 text-white flex items-center justify-center">
-        <p className="text-neutral-500">Loading...</p>
+      <main
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: "#0A0A0A" }}
+      >
+        <p style={{ color: "#525252" }}>Loading...</p>
       </main>
     );
   }
 
   if (!profile) {
     return (
-      <main className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center p-6">
-        <p className="text-neutral-500">Profile not found.</p>
-        <a href="/" className="text-neutral-500 hover:text-white text-sm mt-4 transition-colors">← Back to gigs</a>
+      <main
+        className="min-h-screen flex flex-col items-center justify-center p-6"
+        style={{ backgroundColor: "#0A0A0A" }}
+      >
+        <p style={{ color: "#525252" }}>Profile not found.</p>
+        <a
+          href="/"
+          className="text-sm mt-4 transition-colors"
+          style={{ color: "#A3A3A3" }}
+        >
+          ← Back to gigs
+        </a>
       </main>
     );
   }
 
-  return (
-    <main className="min-h-screen bg-neutral-950 text-white flex flex-col items-center p-6 pt-12">
-      <div className="max-w-md w-full space-y-6">
+  const isOwnProfile = currentUser && currentUser.id === userId;
+  const matchCount = Array.from(myRsvps).length;
 
-        <a href="/" className="text-neutral-500 hover:text-white text-sm transition-colors">
-          ← Back to gigs
+  return (
+    <main
+      className="min-h-screen text-white"
+      style={{ backgroundColor: "#0A0A0A" }}
+    >
+      {/* ================ HEADER ================ */}
+      <div className="px-6 pt-6 pb-8">
+        <a
+          href="/"
+          className="inline-flex items-center gap-2 text-[13px] font-medium mb-8 transition-colors"
+          style={{ color: "#525252" }}
+        >
+          <ArrowLeft size={16} />
+          Back to gigs
         </a>
 
-        {/* Name & Bio */}
-        <div className="space-y-2">
-          <h1 className="text-3xl font-black tracking-tighter">{profile.display_name || "Anonymous"}</h1>
-          {profile.bio && (
-            <p className="text-neutral-400">{profile.bio}</p>
-          )}
-          {currentUser && currentUser.id !== userId && (
-            
-              <a href={"/messages?to=" + userId}
-              className="inline-block bg-[#FF0000] hover:bg-[#CC0000] text-white 
-              font-bold px-6 py-2 rounded-full text-sm transition-colors mt-2"
+        {/* Avatar + identity */}
+        <div className="flex items-start gap-4 mb-6">
+          <div
+            className="shrink-0 rounded-full overflow-hidden"
+            style={{
+              width: "80px",
+              height: "80px",
+              backgroundColor: "#171717",
+              border: "1px solid #262626",
+            }}
+          >
+            {profile.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div
+                className="w-full h-full flex items-center justify-center font-black"
+                style={{ fontSize: "32px", color: "#525252" }}
+              >
+                {profile.display_name
+                  ? profile.display_name[0].toUpperCase()
+                  : "?"}
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 min-w-0 pt-1">
+            <h1
+              className="font-black tracking-[-0.02em] leading-[1.05]"
+              style={{ fontSize: "32px", color: "#FAFAFA" }}
             >
-              Message
-            </a>
-          )}
+              {profile.display_name || "Anonymous"}
+            </h1>
+            {matchCount > 0 && (
+              <p
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] mt-2"
+                style={{ color: "#FF0033" }}
+              >
+                {matchCount} gig{matchCount === 1 ? "" : "s"} in common
+              </p>
+            )}
+          </div>
         </div>
 
-        {/* Genres */}
-        {profile.favourite_genres?.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-neutral-500 text-xs uppercase tracking-wider font-semibold">Into</p>
-            <div className="flex flex-wrap gap-2">
-              {profile.favourite_genres.map((g: string) => (
-                <span key={g} className="bg-neutral-800 text-neutral-300 text-sm px-3 py-1.5 rounded-full">{g}</span>
-              ))}
-            </div>
-          </div>
+        {/* Bio */}
+        {profile.bio && (
+          <p
+            className="text-[15px] leading-[1.5] mb-6"
+            style={{ color: "#A3A3A3" }}
+          >
+            {profile.bio}
+          </p>
         )}
 
-        {/* Venues */}
-        {profile.favourite_venues?.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-neutral-500 text-xs uppercase tracking-wider font-semibold">Go-to venues</p>
-            <div className="flex flex-wrap gap-2">
-              {profile.favourite_venues.map((v: string) => (
-                <span key={v} className="bg-neutral-800 text-neutral-300 text-sm px-3 py-1.5 rounded-full">{v}</span>
-              ))}
-            </div>
-          </div>
+        {/* Message button */}
+        {!isOwnProfile && currentUser && (
+          <a
+            href={`/messages?to=${userId}`}
+            className="inline-flex items-center justify-center gap-2 font-extrabold text-[14px] uppercase tracking-wider rounded-full px-6 py-3 transition-colors"
+            style={{
+              backgroundColor: "#FF0033",
+              color: "#FFFFFF",
+              boxShadow: "0 8px 24px rgba(255, 0, 51, 0.25)",
+            }}
+          >
+            <MessageCircle size={16} />
+            Message
+          </a>
         )}
-
-        {/* Upcoming gigs */}
-        {upcomingGigs.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-neutral-500 text-xs uppercase tracking-wider font-semibold">Going to</p>
-            {upcomingGigs.map((gig: any) => (
-              <div key={gig.id} className="bg-neutral-900 border border-neutral-800 p-3 rounded-xl">
-                <p className="font-bold">{gig.gig_name}</p>
-                <p className="text-neutral-500 text-sm">
-                  {gig.gig_date
-                    ? new Date(gig.gig_date + "T00:00:00").toLocaleDateString("en-AU")
-                    : ""}{" "}
-                  · {gig.venue_name || "Venue TBA"}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-
       </div>
+
+      {/* ================ SONG OF THE MOMENT (placeholder, Step 7) ================ */}
+      {/* This section intentionally left empty for Step 7 — the favorite song embed */}
+
+      {/* ================ GOING TO SECTION ================ */}
+      <div className="px-6 pb-10">
+        <h2
+          className="font-black tracking-[-0.02em] leading-[1.05] mb-5"
+          style={{ fontSize: "28px", color: "#FAFAFA" }}
+        >
+          GOING TO
+        </h2>
+
+        {upcomingGigs.length === 0 ? (
+          <p
+            className="text-[14px] py-6"
+            style={{ color: "#525252" }}
+          >
+            No upcoming gigs yet.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {upcomingGigs.map((gig: any) => {
+              const dateInfo = formatGigDate(gig.gig_date);
+              const isMatch = myRsvps.has(gig.gig_id);
+
+              return (
+                <article
+                  key={gig.id}
+                  className="relative overflow-hidden"
+                  style={{
+                    backgroundColor: "#171717",
+                    borderRadius: "16px",
+                    borderLeft: isMatch
+                      ? "3px solid #FF0033"
+                      : "3px solid transparent",
+                  }}
+                >
+                  <div className="flex items-start gap-4 p-5">
+                    {/* Stacked date block */}
+                    <div
+                      className="shrink-0 flex flex-col items-center justify-center rounded-xl px-3 py-2.5"
+                      style={{
+                        backgroundColor: "#0A0A0A",
+                        minWidth: "56px",
+                      }}
+                    >
+                      <span
+                        className="text-[10px] font-semibold tracking-wider"
+                        style={{ color: "#525252" }}
+                      >
+                        {dateInfo.day}
+                      </span>
+                      <span
+                        className="font-black leading-none my-0.5"
+                        style={{ fontSize: "22px", color: "#FAFAFA" }}
+                      >
+                        {dateInfo.date}
+                      </span>
+                      <span
+                        className="text-[10px] font-semibold tracking-wider"
+                        style={{ color: "#525252" }}
+                      >
+                        {dateInfo.month}
+                      </span>
+                    </div>
+
+                    {/* Gig details */}
+                    <div className="flex-1 min-w-0">
+                      <h3
+                        className="font-extrabold tracking-[-0.01em] leading-[1.2]"
+                        style={{ fontSize: "17px", color: "#FAFAFA" }}
+                      >
+                        {gig.gig_name}
+                      </h3>
+                      <p
+                        className="text-[13px] mt-1"
+                        style={{ color: "#A3A3A3" }}
+                      >
+                        {gig.venue_name || "Venue TBA"}
+                      </p>
+
+                      {/* Match badge — only if current user is also going */}
+                      {isMatch && (
+                        <div
+                          className="inline-flex items-center mt-3 px-3 py-1 rounded-full"
+                          style={{
+                            backgroundColor: "rgba(255, 0, 51, 0.15)",
+                            border: "1px solid rgba(255, 0, 51, 0.3)",
+                          }}
+                        >
+                          <span
+                            className="text-[10px] font-bold uppercase tracking-wider"
+                            style={{ color: "#FF0033" }}
+                          >
+                            ✓ You're both going
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ================ FOOTER METADATA: GENRES + VENUES ================ */}
+      {(profile.favourite_genres?.length > 0 ||
+        profile.favourite_venues?.length > 0) && (
+        <div
+          className="px-6 py-8 mt-2 space-y-6"
+          style={{ borderTop: "1px solid #171717" }}
+        >
+          {profile.favourite_genres?.length > 0 && (
+            <div>
+              <p
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-3"
+                style={{ color: "#525252" }}
+              >
+                Into
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {profile.favourite_genres.map((g: string) => (
+                  <span
+                    key={g}
+                    className="text-[12px] font-semibold px-3 py-1.5 rounded-full"
+                    style={{
+                      backgroundColor: "transparent",
+                      border: "1px solid #262626",
+                      color: "#A3A3A3",
+                    }}
+                  >
+                    {g}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {profile.favourite_venues?.length > 0 && (
+            <div>
+              <p
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-3"
+                style={{ color: "#525252" }}
+              >
+                Go-to venues
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {profile.favourite_venues.map((v: string) => (
+                  <span
+                    key={v}
+                    className="text-[12px] font-semibold px-3 py-1.5 rounded-full"
+                    style={{
+                      backgroundColor: "transparent",
+                      border: "1px solid #262626",
+                      color: "#A3A3A3",
+                    }}
+                  >
+                    {v}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </main>
   );
 }
