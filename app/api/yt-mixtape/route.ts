@@ -15,6 +15,13 @@ export async function POST(request: Request) {
       'Content-Type': 'application/json'
     };
 
+    // Sort gigs by date (soonest first) before building playlist
+    const sortedGigs = [...gigs].sort((a, b) => {
+      const dateA = a.dates?.start?.localDate || '9999-12-31';
+      const dateB = b.dates?.start?.localDate || '9999-12-31';
+      return dateA.localeCompare(dateB);
+    });
+
     // 1. CREATE PLAYLIST
     const playlistRes = await fetch(`${ytApi}/playlists?part=snippet,status`, {
       method: 'POST',
@@ -43,7 +50,10 @@ export async function POST(request: Request) {
     const seenArtists = new Set<string>();
     let addedCount = 0;
 
-    for (const gig of gigs.slice(0, 15)) {
+    const normalize = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9 ]/g, '').trim();
+    const stripSpaces = (s: string) => s.replace(/\s/g, '');
+
+    for (const gig of sortedGigs.slice(0, 15)) {
       const artistNames: string[] = [];
       const attractions = gig._embedded?.attractions || [];
 
@@ -75,9 +85,9 @@ export async function POST(request: Request) {
         if (seenArtists.has(key)) continue;
         seenArtists.add(key);
 
-        // Search YouTube for a music video by this artist
+        // Search YouTube for music videos — fetch top 3 results for better matching
         const searchRes = await fetch(
-          `${ytApi}/search?part=snippet&q=${encodeURIComponent(artistName + ' official music video')}&type=video&videoCategoryId=10&maxResults=1`,
+          `${ytApi}/search?part=snippet&q=${encodeURIComponent(artistName + ' official music video')}&type=video&videoCategoryId=10&maxResults=3`,
           { headers: { 'Authorization': `Bearer ${token}` } }
         );
         const searchData = await searchRes.json();
@@ -87,30 +97,56 @@ export async function POST(request: Request) {
           continue;
         }
 
-        const topResult = searchData.items[0];
-        const videoId = topResult.id.videoId;
-        const videoTitle = topResult.snippet.title;
-        const channelTitle = topResult.snippet.channelTitle;
-
-        // Verify the result is actually related to the artist we searched for
-        const normalize = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9 ]/g, '').trim();
         const artistNorm = normalize(artistName);
-        const channelNorm = normalize(channelTitle);
-        const titleNorm = normalize(videoTitle);
 
-        const stripSpaces = (s: string) => s.replace(/\s/g, '');
-        const isRelevant = channelNorm.includes(artistNorm)
-          || artistNorm.includes(channelNorm)
-          || stripSpaces(channelNorm).includes(stripSpaces(artistNorm))
-          || stripSpaces(artistNorm).includes(stripSpaces(channelNorm))
-          || titleNorm.startsWith(artistNorm);
+        // Score each result and pick the best match
+        let bestResult = null;
+        let bestScore = -1;
 
-        if (!isRelevant) {
-          console.warn(`[Otoki] Skipping mismatch: searched "${artistName}", got "${videoTitle}" by channel "${channelTitle}"`);
+        for (const result of searchData.items) {
+          const channelTitle = result.snippet.channelTitle;
+          const channelNorm = normalize(channelTitle);
+          let score = 0;
+
+          // Priority 1: YouTube auto-generated "[Artist] - Topic" channels (always correct)
+          if (channelNorm.endsWith(' topic')) {
+            const topicArtist = channelNorm.replace(/ topic$/, '');
+            if (topicArtist.includes(artistNorm) || artistNorm.includes(topicArtist)
+                || stripSpaces(topicArtist).includes(stripSpaces(artistNorm))
+                || stripSpaces(artistNorm).includes(stripSpaces(topicArtist))) {
+              score = 100; // Guaranteed correct — auto-generated from official audio
+            }
+          }
+
+          // Priority 2: Channel name matches artist name (official artist channel / VEVO)
+          if (score === 0) {
+            if (channelNorm.includes(artistNorm) || artistNorm.includes(channelNorm)
+                || stripSpaces(channelNorm).includes(stripSpaces(artistNorm))
+                || stripSpaces(artistNorm).includes(stripSpaces(channelNorm))) {
+              score = 50;
+            }
+          }
+
+          // No match on channel name = score stays 0, result is rejected
+          // (titleNorm.startsWith check deliberately removed — too many false positives from fan uploads)
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestResult = result;
+          }
+        }
+
+        // Only add if we found a channel-verified match
+        if (!bestResult || bestScore === 0) {
+          console.warn(`[Otoki] No verified match for: "${artistName}" — all ${searchData.items.length} results failed channel check`);
           continue;
         }
 
-        console.log(`[Otoki] Found: "${videoTitle}" (channel: ${channelTitle}) for artist "${artistName}"`);
+        const videoId = bestResult.id.videoId;
+        const videoTitle = bestResult.snippet.title;
+        const channelTitle = bestResult.snippet.channelTitle;
+
+        console.log(`[Otoki] Found: "${videoTitle}" (channel: ${channelTitle}, score: ${bestScore}) for artist "${artistName}"`);
 
         // Add video to playlist
         const addRes = await fetch(`${ytApi}/playlistItems?part=snippet`, {
