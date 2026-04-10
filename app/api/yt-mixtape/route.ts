@@ -53,6 +53,39 @@ export async function POST(request: Request) {
     const normalize = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9 ]/g, '').trim();
     const stripSpaces = (s: string) => s.replace(/\s/g, '');
 
+    // Words that indicate a generic event, not a specific artist
+    const genericEventWords = /\b(salsa|bachata|karaoke|trivia|comedy|open\s*mic|dance\s*class|workshop|party|club\s*night|dj\s*night|jam\s*session|kids|children|markets|bingo|quiz)\b/i;
+
+    // Check if a channel name matches an artist name
+    const channelMatchesArtist = (channelNorm: string, artistNorm: string): boolean => {
+      return channelNorm.includes(artistNorm)
+        || artistNorm.includes(channelNorm)
+        || stripSpaces(channelNorm).includes(stripSpaces(artistNorm))
+        || stripSpaces(artistNorm).includes(stripSpaces(channelNorm));
+    };
+
+    // Score a YouTube search result against an artist name
+    const scoreResult = (result: any, artistNorm: string): number => {
+      const channelTitle = result.snippet.channelTitle;
+      const channelNorm = normalize(channelTitle);
+
+      // Priority 1: YouTube auto-generated "[Artist] - Topic" channels (always correct)
+      if (channelNorm.endsWith(' topic')) {
+        const topicArtist = channelNorm.replace(/ topic$/, '');
+        if (channelMatchesArtist(topicArtist, artistNorm)) {
+          return 100;
+        }
+      }
+
+      // Priority 2: Channel name matches artist name (official artist channel / VEVO)
+      if (channelMatchesArtist(channelNorm, artistNorm)) {
+        return 50;
+      }
+
+      // No channel match = rejected
+      return 0;
+    };
+
     for (const gig of sortedGigs.slice(0, 15)) {
       const artistNames: string[] = [];
       const attractions = gig._embedded?.attractions || [];
@@ -71,13 +104,21 @@ export async function POST(request: Request) {
           }
         }
       } else {
+        // Fallback: extract artist name from gig title
         const fallbackName = gig.name
           .split(/[\|\-\@\:\/]/)[0]
           .replace(/\([^)]*\)/g, '')
           .replace(/\b(Tour|Festival|Live|Australian|Anniversary|Acoustic|feat\.?.*)/gi, '')
           .replace(/[''']/g, '')
           .trim();
-        if (fallbackName) artistNames.push(fallbackName);
+
+        // Skip generic event names that aren't real artists
+        if (!fallbackName || genericEventWords.test(fallbackName) || genericEventWords.test(gig.name)) {
+          console.log(`[Otoki] Skipping generic event: "${gig.name}"`);
+          continue;
+        }
+
+        artistNames.push(fallbackName);
       }
 
       for (const artistName of artistNames) {
@@ -85,60 +126,52 @@ export async function POST(request: Request) {
         if (seenArtists.has(key)) continue;
         seenArtists.add(key);
 
-        // Search YouTube for music videos — fetch top 3 results for better matching
+        const artistNorm = normalize(artistName);
+
+        // === SEARCH 1: Standard music video search with top 3 results ===
         const searchRes = await fetch(
           `${ytApi}/search?part=snippet&q=${encodeURIComponent(artistName + ' official music video')}&type=video&videoCategoryId=10&maxResults=3`,
           { headers: { 'Authorization': `Bearer ${token}` } }
         );
         const searchData = await searchRes.json();
 
-        if (!searchData.items || searchData.items.length === 0) {
-          console.warn(`[Otoki] No YouTube video found for: "${artistName}", skipping`);
-          continue;
+        let bestResult = null;
+        let bestScore = 0;
+
+        if (searchData.items && searchData.items.length > 0) {
+          for (const result of searchData.items) {
+            const score = scoreResult(result, artistNorm);
+            if (score > bestScore) {
+              bestScore = score;
+              bestResult = result;
+            }
+          }
         }
 
-        const artistNorm = normalize(artistName);
+        // === SEARCH 2: Fallback — search for "[Artist] topic" to find auto-generated channels ===
+        if (bestScore === 0) {
+          console.log(`[Otoki] Standard search failed for "${artistName}", trying Topic channel fallback...`);
 
-        // Score each result and pick the best match
-        let bestResult = null;
-        let bestScore = -1;
+          const topicRes = await fetch(
+            `${ytApi}/search?part=snippet&q=${encodeURIComponent(artistName)}&type=video&videoCategoryId=10&maxResults=3`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          const topicData = await topicRes.json();
 
-        for (const result of searchData.items) {
-          const channelTitle = result.snippet.channelTitle;
-          const channelNorm = normalize(channelTitle);
-          let score = 0;
-
-          // Priority 1: YouTube auto-generated "[Artist] - Topic" channels (always correct)
-          if (channelNorm.endsWith(' topic')) {
-            const topicArtist = channelNorm.replace(/ topic$/, '');
-            if (topicArtist.includes(artistNorm) || artistNorm.includes(topicArtist)
-                || stripSpaces(topicArtist).includes(stripSpaces(artistNorm))
-                || stripSpaces(artistNorm).includes(stripSpaces(topicArtist))) {
-              score = 100; // Guaranteed correct — auto-generated from official audio
+          if (topicData.items && topicData.items.length > 0) {
+            for (const result of topicData.items) {
+              const score = scoreResult(result, artistNorm);
+              if (score > bestScore) {
+                bestScore = score;
+                bestResult = result;
+              }
             }
-          }
-
-          // Priority 2: Channel name matches artist name (official artist channel / VEVO)
-          if (score === 0) {
-            if (channelNorm.includes(artistNorm) || artistNorm.includes(channelNorm)
-                || stripSpaces(channelNorm).includes(stripSpaces(artistNorm))
-                || stripSpaces(artistNorm).includes(stripSpaces(channelNorm))) {
-              score = 50;
-            }
-          }
-
-          // No match on channel name = score stays 0, result is rejected
-          // (titleNorm.startsWith check deliberately removed — too many false positives from fan uploads)
-
-          if (score > bestScore) {
-            bestScore = score;
-            bestResult = result;
           }
         }
 
         // Only add if we found a channel-verified match
         if (!bestResult || bestScore === 0) {
-          console.warn(`[Otoki] No verified match for: "${artistName}" — all ${searchData.items.length} results failed channel check`);
+          console.warn(`[Otoki] No verified match for: "${artistName}" — all results failed channel check`);
           continue;
         }
 
