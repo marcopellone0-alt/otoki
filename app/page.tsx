@@ -246,6 +246,25 @@ export default function Home() {
           </div>
         )}
         <div className="max-w-md w-full space-y-8">
+
+          <div className="flex gap-3 justify-center text-sm">
+            <a href="/" className="text-neutral-500 hover:text-white transition-colors">Home</a>
+            <span className="text-neutral-700">·</span>
+            <a href="/profile" className="text-neutral-500 hover:text-white transition-colors">Profile</a>
+            <span className="text-neutral-700">·</span>
+            <a href="/messages" className="text-neutral-500 hover:text-white transition-colors relative">
+              Messages
+              {unreadCount > 0 && (
+                <span className="ml-1 bg-[#FF0000] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {unreadCount}
+                </span>
+              )}
+            </a>
+            <span className="text-neutral-700">·</span>
+            <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/'; }} className="text-neutral-500 hover:text-white transition-colors">
+              Log out
+            </button>
+          </div>
           
           <div className="text-center space-y-2">
             <h2 className="text-3xl font-bold">Your gig playlist is ready.</h2>

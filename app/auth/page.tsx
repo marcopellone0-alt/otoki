@@ -11,18 +11,18 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  const handleSubmit = async () => {
-    const finalEmail = email || (document.querySelector('input[type="email"]') as HTMLInputElement)?.value || "";
-    const finalPassword = password || (document.querySelector('input[type="password"]') as HTMLInputElement)?.value || "";
+  const handleSubmit = async (e?: any) => {
+    if (e) e.preventDefault();
+    const emailInput = document.querySelector('input[type="email"]') as HTMLInputElement;
+    const passInput = document.querySelector('input[type="password"]') as HTMLInputElement;
+    const finalEmail = email || emailInput?.value || "";
+    const finalPassword = password || passInput?.value || "";
     if (!finalEmail || !finalPassword) return;
-    setEmail(finalEmail);
-    setPassword(finalPassword);
     setLoading(true);
     setMessage("");
 
     try {
       if (isSignUp) {
-        // Sign up
         const { data, error } = await supabase.auth.signUp({
           email: finalEmail,
           password: finalPassword,
@@ -34,17 +34,14 @@ export default function Auth() {
         }
 
         if (data.user) {
-          // Create profile
           await supabase.from("profiles").insert({
             id: data.user.id,
-            display_name: displayName || email.split("@")[0],
+            display_name: displayName || finalEmail.split("@")[0],
           });
-
           setMessage("Account created! Check your email to confirm, then log in.");
           setIsSignUp(false);
         }
       } else {
-        // Sign in
         const { error } = await supabase.auth.signInWithPassword({
           email: finalEmail,
           password: finalPassword,
@@ -55,7 +52,6 @@ export default function Auth() {
           return;
         }
 
-        // Redirect to home
         window.location.href = "/";
       }
     } catch (err) {
@@ -78,7 +74,7 @@ export default function Auth() {
           </p>
         </div>
 
-        <div className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
 
           {isSignUp && (
             <div className="space-y-1">
@@ -100,6 +96,7 @@ export default function Auth() {
               value={email}
               onChange={e => setEmail(e.target.value)}
               placeholder="you@email.com"
+              autoComplete="email"
               className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000] placeholder:text-neutral-600"
             />
           </div>
@@ -111,6 +108,7 @@ export default function Auth() {
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="••••••••"
+              autoComplete="current-password"
               className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000] placeholder:text-neutral-600"
             />
           </div>
@@ -122,6 +120,7 @@ export default function Auth() {
           )}
 
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={loading}
             className={`w-full font-extrabold text-lg rounded-full py-4 transition-colors ${
@@ -135,10 +134,11 @@ export default function Auth() {
               : (isSignUp ? "CREATE ACCOUNT" : "SIGN IN")}
           </button>
 
-        </div>
+        </form>
 
         <div className="text-center">
           <button
+            type="button"
             onClick={() => { setIsSignUp(!isSignUp); setMessage(""); }}
             className="text-neutral-500 hover:text-white text-sm transition-colors"
           >
