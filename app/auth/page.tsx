@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 
 export default function Auth() {
@@ -11,10 +11,27 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
+  // ===== DIAGNOSTIC: confirms React hydrated and mounted =====
+  useEffect(() => {
+    if (typeof window !== "undefined" && (window as any).__diagLog) {
+      (window as any).__diagLog("✅ React hydrated — Auth component mounted");
+    }
+  }, []);
+
   const handleSubmit = async (e?: any) => {
     if (e) e.preventDefault();
-    const emailInput = document.querySelector('input[type="email"]') as HTMLInputElement;
-    const passInput = document.querySelector('input[type="password"]') as HTMLInputElement;
+
+    // DIAGNOSTIC: log that the click fired
+    if (typeof window !== "undefined" && (window as any).__diagLog) {
+      (window as any).__diagLog("🔵 handleSubmit fired");
+    }
+
+    const emailInput = document.querySelector(
+      'input[type="email"]'
+    ) as HTMLInputElement;
+    const passInput = document.querySelector(
+      'input[type="password"]'
+    ) as HTMLInputElement;
     const finalEmail = email || emailInput?.value || "";
     const finalPassword = password || passInput?.value || "";
     if (!finalEmail || !finalPassword) return;
@@ -38,7 +55,9 @@ export default function Auth() {
             id: data.user.id,
             display_name: displayName || finalEmail.split("@")[0],
           });
-          setMessage("Account created! Check your email to confirm, then log in.");
+          setMessage(
+            "Account created! Check your email to confirm, then log in."
+          );
           setIsSignUp(false);
         }
       } else {
@@ -64,9 +83,11 @@ export default function Auth() {
   return (
     <main className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center p-6">
       <div className="max-w-sm w-full space-y-8">
-
         <div className="text-center space-y-2">
-          <a href="/" className="text-5xl font-black tracking-tighter hover:opacity-80 transition-opacity">
+          <a
+            href="/"
+            className="text-5xl font-black tracking-tighter hover:opacity-80 transition-opacity"
+          >
             OTOKI
           </a>
           <p className="text-neutral-400 text-sm">
@@ -75,14 +96,15 @@ export default function Auth() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-
           {isSignUp && (
             <div className="space-y-1">
-              <label className="text-neutral-500 text-xs uppercase tracking-wider">Name</label>
+              <label className="text-neutral-500 text-xs uppercase tracking-wider">
+                Name
+              </label>
               <input
                 type="text"
                 value={displayName}
-                onChange={e => setDisplayName(e.target.value)}
+                onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="What should we call you?"
                 className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000] placeholder:text-neutral-600"
               />
@@ -90,11 +112,13 @@ export default function Auth() {
           )}
 
           <div className="space-y-1">
-            <label className="text-neutral-500 text-xs uppercase tracking-wider">Email</label>
+            <label className="text-neutral-500 text-xs uppercase tracking-wider">
+              Email
+            </label>
             <input
               type="email"
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="you@email.com"
               autoComplete="email"
               className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000] placeholder:text-neutral-600"
@@ -102,11 +126,13 @@ export default function Auth() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-neutral-500 text-xs uppercase tracking-wider">Password</label>
+            <label className="text-neutral-500 text-xs uppercase tracking-wider">
+              Password
+            </label>
             <input
               type="password"
               value={password}
-              onChange={e => setPassword(e.target.value)}
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               autoComplete="current-password"
               className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000] placeholder:text-neutral-600"
@@ -114,7 +140,11 @@ export default function Auth() {
           </div>
 
           {message && (
-            <p className={`text-sm text-center ${message.includes("created") ? "text-green-400" : "text-red-400"}`}>
+            <p
+              className={`text-sm text-center ${
+                message.includes("created") ? "text-green-400" : "text-red-400"
+              }`}
+            >
               {message}
             </p>
           )}
@@ -130,16 +160,26 @@ export default function Auth() {
             }`}
           >
             {loading
-              ? (isSignUp ? "CREATING ACCOUNT..." : "SIGNING IN...")
-              : (isSignUp ? "CREATE ACCOUNT" : "SIGN IN")}
+              ? isSignUp
+                ? "CREATING ACCOUNT..."
+                : "SIGNING IN..."
+              : isSignUp
+              ? "CREATE ACCOUNT"
+              : "SIGN IN"}
           </button>
-
         </form>
 
         <div className="text-center">
           <button
             type="button"
-            onClick={() => { setIsSignUp(!isSignUp); setMessage(""); }}
+            onClick={() => {
+              // DIAGNOSTIC
+              if (typeof window !== "undefined" && (window as any).__diagLog) {
+                (window as any).__diagLog("🔵 Toggle clicked — isSignUp will become: " + !isSignUp);
+              }
+              setIsSignUp(!isSignUp);
+              setMessage("");
+            }}
             className="text-neutral-500 hover:text-white text-sm transition-colors"
           >
             {isSignUp
@@ -147,7 +187,6 @@ export default function Auth() {
               : "New here? Create an account"}
           </button>
         </div>
-
       </div>
     </main>
   );
