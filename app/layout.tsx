@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import TabBar from "./components/TabBar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,7 +34,14 @@ export default function RootLayout({
           content="e6bc91a8-4bae-4db4-b05a-0e711987c47f"
         />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body
+        className="min-h-full flex flex-col"
+        style={{ backgroundColor: "#0A0A0A" }}
+      >
+        {/* Main content — bottom padding reserves space for tab bar */}
+        <div className="flex-1 pb-20">{children}</div>
+        <TabBar />
+      </body>
     </html>
   );
 }
