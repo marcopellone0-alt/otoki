@@ -334,10 +334,11 @@ export default function Home() {
 
         {/* ================ STICKY MIXTAPE BAR ================ */}
         <div
-          className="sticky top-0 z-30 px-6 py-4 backdrop-blur-xl"
+          className="sticky top-0 z-30 px-6 py-4"
           style={{
-            backgroundColor: "rgba(10, 10, 10, 0.85)",
+            backgroundColor: "#0A0A0A",
             borderBottom: "1px solid #171717",
+            boxShadow: "0 8px 24px rgba(0, 0, 0, 0.6)",
           }}
         >
           {mixtapeUrl ? (
@@ -406,7 +407,7 @@ export default function Home() {
                           borderLeft: isGoing ? "3px solid #FF0033" : "3px solid transparent",
                         }}
                       >
-                        <div className="flex items-start gap-4 p-4">
+                        <div className="flex items-start gap-4 p-5 pb-3">
                           {/* Stacked date block */}
                           <div
                             className="shrink-0 flex flex-col items-center justify-center rounded-xl px-3 py-2.5"
@@ -451,7 +452,7 @@ export default function Home() {
 
                         {/* Actions row */}
                         <div
-                          className="flex items-center gap-2 px-4 pb-4"
+                          className="flex items-center gap-2 px-5 pb-5"
                           style={{ paddingTop: "4px" }}
                         >
                           <button
@@ -557,7 +558,7 @@ export default function Home() {
           </div>
 
           <div className="flex gap-3">
-            <div className="flex-1 space-y-1.5">
+            <div className="flex-1 space-y-1.5" style={{ minWidth: 0 }}>
               <label
                 className="text-[11px] font-semibold uppercase tracking-[0.1em] block"
                 style={{ color: "#525252" }}
@@ -569,15 +570,19 @@ export default function Home() {
                 value={fromDate}
                 min={today}
                 onChange={(e) => setFromDate(e.target.value)}
-                className="w-full text-[15px] font-medium rounded-xl px-4 py-4 focus:outline-none"
+                className="text-[15px] font-medium rounded-xl px-3 py-4 focus:outline-none"
                 style={{
                   backgroundColor: "#171717",
                   border: "1px solid #262626",
                   color: "#FAFAFA",
+                  width: "100%",
+                  minWidth: 0,
+                  boxSizing: "border-box",
+                  WebkitAppearance: "none",
                 }}
               />
             </div>
-            <div className="flex-1 space-y-1.5">
+            <div className="flex-1 space-y-1.5" style={{ minWidth: 0 }}>
               <label
                 className="text-[11px] font-semibold uppercase tracking-[0.1em] block"
                 style={{ color: "#525252" }}
@@ -589,11 +594,15 @@ export default function Home() {
                 value={toDate}
                 min={fromDate}
                 onChange={(e) => setToDate(e.target.value)}
-                className="w-full text-[15px] font-medium rounded-xl px-4 py-4 focus:outline-none"
+                className="text-[15px] font-medium rounded-xl px-3 py-4 focus:outline-none"
                 style={{
                   backgroundColor: "#171717",
                   border: "1px solid #262626",
                   color: "#FAFAFA",
+                  width: "100%",
+                  minWidth: 0,
+                  boxSizing: "border-box",
+                  WebkitAppearance: "none",
                 }}
               />
             </div>
