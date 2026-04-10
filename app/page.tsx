@@ -2,6 +2,56 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
+import { X } from "lucide-react";
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+const formatGigDate = (dateStr: string | null | undefined) => {
+  if (!dateStr) return { day: "TBA", date: "", month: "", isToday: false, isTomorrow: false };
+  const date = new Date(dateStr + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return {
+    day: date.toLocaleDateString("en-AU", { weekday: "short" }).toUpperCase(),
+    date: date.getDate().toString(),
+    month: date.toLocaleDateString("en-AU", { month: "short" }).toUpperCase(),
+    isToday: date.getTime() === today.getTime(),
+    isTomorrow: date.getTime() === tomorrow.getTime(),
+  };
+};
+
+const groupGigsByDay = (gigs: any[]) => {
+  const groups: { label: string; sortKey: string; gigs: any[] }[] = [];
+  const byKey = new Map<string, { label: string; sortKey: string; gigs: any[] }>();
+
+  for (const gig of gigs) {
+    const dateStr = gig.dates?.start?.localDate;
+    if (!dateStr) {
+      const key = "TBA";
+      if (!byKey.has(key)) byKey.set(key, { label: "DATE TBA", sortKey: "9999", gigs: [] });
+      byKey.get(key)!.gigs.push(gig);
+      continue;
+    }
+    const f = formatGigDate(dateStr);
+    let label: string;
+    if (f.isToday) label = "TONIGHT";
+    else if (f.isTomorrow) label = "TOMORROW";
+    else label = `${f.day} ${f.date} ${f.month}`;
+
+    if (!byKey.has(dateStr)) byKey.set(dateStr, { label, sortKey: dateStr, gigs: [] });
+    byKey.get(dateStr)!.gigs.push(gig);
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+};
+
+// ============================================================================
+// Main Component
+// ============================================================================
 
 export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -10,13 +60,11 @@ export default function Home() {
   const [isBuildingMixtape, setIsBuildingMixtape] = useState(false);
   const [mixtapeUrl, setMixtapeUrl] = useState<string | null>(null);
 
-  // Default date range: today → 7 days from now
-  const today = new Date().toISOString().split('T')[0];
-  const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const today = new Date().toISOString().split("T")[0];
+  const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(nextWeek);
   const [user, setUser] = useState<any>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [rsvps, setRsvps] = useState<Set<string>>(new Set());
   const [rsvpCounts, setRsvpCounts] = useState<Record<string, number>>({});
   const [viewingGig, setViewingGig] = useState<any>(null);
@@ -27,83 +75,41 @@ export default function Home() {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
   }, []);
 
-  // Load unread message count and subscribe to new messages
-  useEffect(() => {
-    if (!user) return;
-
-    const loadUnread = async () => {
-      const { count } = await supabase
-        .from("messages")
-        .select("*", { count: "exact", head: true })
-        .eq("receiver_id", user.id)
-        .is("read_at", null);
-      setUnreadCount(count || 0);
-    };
-
-    loadUnread();
-
-    const channel = supabase
-      .channel("nav-unread")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "messages",
-          filter: `receiver_id=eq.${user.id}`,
-        },
-        () => loadUnread()
-      )
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [user]);
-
-  // Load RSVP counts for all gigs, and user's own RSVPs
   const loadRsvps = async (gigList: any[]) => {
     const gigIds = gigList.map((g: any) => g.id);
-    
-    // Get counts for each gig
     const { data: allRsvps } = await supabase
-      .from('gig_rsvps')
-      .select('gig_id')
-      .in('gig_id', gigIds);
-    
+      .from("gig_rsvps")
+      .select("gig_id")
+      .in("gig_id", gigIds);
     const counts: Record<string, number> = {};
-    allRsvps?.forEach(r => {
+    allRsvps?.forEach((r) => {
       counts[r.gig_id] = (counts[r.gig_id] || 0) + 1;
     });
     setRsvpCounts(counts);
 
-    // Get current user's RSVPs
     if (user) {
       const { data: myRsvps } = await supabase
-        .from('gig_rsvps')
-        .select('gig_id')
-        .eq('user_id', user.id)
-        .in('gig_id', gigIds);
-      
-      setRsvps(new Set(myRsvps?.map(r => r.gig_id) || []));
+        .from("gig_rsvps")
+        .select("gig_id")
+        .eq("user_id", user.id)
+        .in("gig_id", gigIds);
+      setRsvps(new Set(myRsvps?.map((r) => r.gig_id) || []));
     }
   };
 
   const toggleRsvp = async (gig: any) => {
     if (!user) {
-      window.location.href = '/auth';
+      window.location.href = "/auth";
       return;
     }
-
     const gigId = gig.id;
-    
     if (rsvps.has(gigId)) {
-      // Remove RSVP
-      await supabase.from('gig_rsvps').delete().match({ user_id: user.id, gig_id: gigId });
+      await supabase.from("gig_rsvps").delete().match({ user_id: user.id, gig_id: gigId });
       rsvps.delete(gigId);
       setRsvps(new Set(rsvps));
-      setRsvpCounts(prev => ({ ...prev, [gigId]: (prev[gigId] || 1) - 1 }));
+      setRsvpCounts((prev) => ({ ...prev, [gigId]: (prev[gigId] || 1) - 1 }));
     } else {
-      // Add RSVP
-      await supabase.from('gig_rsvps').insert({
+      await supabase.from("gig_rsvps").insert({
         user_id: user.id,
         gig_id: gigId,
         gig_name: gig.name,
@@ -112,19 +118,17 @@ export default function Home() {
       });
       rsvps.add(gigId);
       setRsvps(new Set(rsvps));
-      setRsvpCounts(prev => ({ ...prev, [gigId]: (prev[gigId] || 0) + 1 }));
+      setRsvpCounts((prev) => ({ ...prev, [gigId]: (prev[gigId] || 0) + 1 }));
     }
   };
 
   const viewAttendees = async (gig: any) => {
     setViewingGig(gig);
     setLoadingAttendees(true);
-    
     const { data } = await supabase
-      .from('gig_rsvps')
-      .select('user_id, profiles(display_name, bio, favourite_genres, favourite_venues)')
-      .eq('gig_id', gig.id);
-    
+      .from("gig_rsvps")
+      .select("user_id, profiles(display_name, bio, favourite_genres, favourite_venues)")
+      .eq("gig_id", gig.id);
     setAttendees(data || []);
     setLoadingAttendees(false);
   };
@@ -146,15 +150,12 @@ export default function Home() {
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
-      // Pass the date range to the API
       const response = await fetch(`/api/gigs?from=${fromDate}&to=${toDate}`);
       const data = await response.json();
       const liveEvents = data._embedded?.events || [];
-      
       const uniqueGigs = Array.from(
         new Map(liveEvents.map((gig: any) => [gig.name, gig])).values()
       );
-      
       setGigs(uniqueGigs);
       setShowDashboard(true);
       loadRsvps(uniqueGigs);
@@ -170,18 +171,16 @@ export default function Home() {
     setIsBuildingMixtape(true);
     setMixtapeUrl(null);
     try {
-      const response = await fetch('/api/yt-mixtape', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gigs })
+      const response = await fetch("/api/yt-mixtape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gigs }),
       });
-
       if (response.status === 401) {
         sessionStorage.setItem("otoki_recovery_gigs", JSON.stringify(gigs));
-        window.location.href = '/api/yt-login';
+        window.location.href = "/api/yt-login";
         return;
       }
-
       const data = await response.json();
       if (data.url) {
         setMixtapeUrl(data.url);
@@ -196,47 +195,115 @@ export default function Home() {
     }
   };
 
+  // ==========================================================================
+  // DASHBOARD VIEW
+  // ==========================================================================
+
   if (showDashboard) {
+    const groupedGigs = groupGigsByDay(gigs);
+    const dateRangeLabel = `${new Date(fromDate + "T00:00:00").toLocaleDateString("en-AU", {
+      day: "numeric",
+      month: "short",
+    })} → ${new Date(toDate + "T00:00:00").toLocaleDateString("en-AU", {
+      day: "numeric",
+      month: "short",
+    })}`;
+
     return (
-      <main className="min-h-screen bg-neutral-950 text-white flex flex-col items-center p-6 pt-12">
+      <main className="min-h-screen text-white" style={{ backgroundColor: "#0A0A0A" }}>
+        {/* ================ ATTENDEES MODAL ================ */}
         {viewingGig && (
-          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-6" onClick={() => setViewingGig(null)}>
-            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-sm w-full max-h-[80vh] overflow-y-auto p-6 space-y-4" onClick={e => e.stopPropagation()}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-lg">{viewingGig.name}</h3>
-                  <p className="text-neutral-500 text-sm">
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+            style={{ backgroundColor: "rgba(0, 0, 0, 0.85)" }}
+            onClick={() => setViewingGig(null)}
+          >
+            <div
+              className="w-full max-w-md max-h-[85vh] overflow-y-auto p-6"
+              style={{
+                backgroundColor: "#171717",
+                borderTopLeftRadius: "24px",
+                borderTopRightRadius: "24px",
+                borderBottomLeftRadius: "0",
+                borderBottomRightRadius: "0",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-start mb-6">
+                <div className="pr-4">
+                  <p
+                    className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-2"
+                    style={{ color: "#525252" }}
+                  >
+                    Who's going to
+                  </p>
+                  <h3 className="text-[24px] font-extrabold tracking-[-0.01em] leading-[1.15]">
+                    {viewingGig.name}
+                  </h3>
+                  <p className="text-[14px] mt-1" style={{ color: "#A3A3A3" }}>
                     {viewingGig.dates?.start?.localDate
-                      ? new Date(viewingGig.dates.start.localDate + 'T00:00:00').toLocaleDateString('en-AU')
+                      ? new Date(viewingGig.dates.start.localDate + "T00:00:00").toLocaleDateString(
+                          "en-AU",
+                          { weekday: "short", day: "numeric", month: "short" }
+                        )
                       : ""}{" "}
                     · {viewingGig._embedded?.venues?.[0]?.name || "Venue TBA"}
                   </p>
                 </div>
-                <button onClick={() => setViewingGig(null)} className="text-neutral-500 hover:text-white text-xl">✕</button>
+                <button
+                  onClick={() => setViewingGig(null)}
+                  className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+                  style={{ backgroundColor: "#262626", color: "#A3A3A3" }}
+                >
+                  <X size={18} />
+                </button>
               </div>
 
-              <p className="text-neutral-500 text-xs uppercase tracking-wider font-semibold">
+              <p
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-4"
+                style={{ color: "#FF0033" }}
+              >
                 {attendees.length} {attendees.length === 1 ? "person" : "people"} going
               </p>
 
               {loadingAttendees ? (
-                <p className="text-neutral-500 text-center py-4">Loading...</p>
+                <p className="text-center py-8" style={{ color: "#525252" }}>
+                  Loading...
+                </p>
               ) : attendees.length === 0 ? (
-                <p className="text-neutral-500 text-center py-4">No one yet — be the first!</p>
+                <p className="text-center py-8" style={{ color: "#525252" }}>
+                  No one yet — be the first!
+                </p>
               ) : (
                 <div className="space-y-3">
                   {attendees.map((a: any, i: number) => (
-                    <div key={i} className="bg-neutral-800 rounded-xl p-3 space-y-1">
-                      <a href={`/profile/${a.user_id}`} className="font-bold hover:text-red-400 transition-colors">
+                    <div
+                      key={i}
+                      className="p-4 rounded-2xl"
+                      style={{ backgroundColor: "#0A0A0A" }}
+                    >
+                      <a
+                        href={`/profile/${a.user_id}`}
+                        className="text-[16px] font-bold transition-colors"
+                        style={{ color: "#FAFAFA" }}
+                      >
                         {a.profiles?.display_name || "Anonymous"}
                       </a>
                       {a.profiles?.bio && (
-                        <p className="text-neutral-400 text-sm">{a.profiles.bio}</p>
+                        <p className="text-[14px] mt-1" style={{ color: "#A3A3A3" }}>
+                          {a.profiles.bio}
+                        </p>
                       )}
                       {a.profiles?.favourite_genres?.length > 0 && (
-                        <div className="flex flex-wrap gap-1 pt-1">
+                        <div className="flex flex-wrap gap-1.5 mt-2">
                           {a.profiles.favourite_genres.map((g: string) => (
-                            <span key={g} className="bg-neutral-700 text-neutral-300 text-xs px-2 py-0.5 rounded-full">{g}</span>
+                            <span
+                              key={g}
+                              className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                              style={{ backgroundColor: "#262626", color: "#A3A3A3" }}
+                            >
+                              {g}
+                            </span>
                           ))}
                         </div>
                       )}
@@ -247,202 +314,317 @@ export default function Home() {
             </div>
           </div>
         )}
-        <div className="max-w-md w-full space-y-8">
 
-          <div className="flex gap-3 justify-center text-sm">
-            <a href="/" className="text-neutral-500 hover:text-white transition-colors">Home</a>
-            <span className="text-neutral-700">·</span>
-            <a href="/profile" className="text-neutral-500 hover:text-white transition-colors">Profile</a>
-            <span className="text-neutral-700">·</span>
-            <a href="/messages" className="text-neutral-500 hover:text-white transition-colors relative">
-              Messages
-              {unreadCount > 0 && (
-                <span className="ml-1 bg-[#FF0000] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  {unreadCount}
-                </span>
-              )}
-            </a>
-            <span className="text-neutral-700">·</span>
-            <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/'; }} className="text-neutral-500 hover:text-white transition-colors">
-              Log out
-            </button>
-          </div>
-          
-          <div className="text-center space-y-2">
-            <h2 className="text-3xl font-bold">Your gig playlist is ready.</h2>
-            <p className="text-neutral-400">
-              Melbourne • {new Date(fromDate + 'T00:00:00').toLocaleDateString('en-AU')} → {new Date(toDate + 'T00:00:00').toLocaleDateString('en-AU')}
-            </p>
-          </div>
+        {/* ================ HEADER ================ */}
+        <div className="px-6 pt-12 pb-6">
+          <p
+            className="text-[11px] font-semibold uppercase tracking-[0.15em] mb-3"
+            style={{ color: "#525252" }}
+          >
+            {dateRangeLabel}
+          </p>
+          <h1
+            className="font-black leading-[0.95] tracking-[-0.03em]"
+            style={{ fontSize: "48px" }}
+          >
+            GIGS IN<br />
+            MELBOURNE
+          </h1>
+        </div>
 
+        {/* ================ STICKY MIXTAPE BAR ================ */}
+        <div
+          className="sticky top-0 z-30 px-6 py-4 backdrop-blur-xl"
+          style={{
+            backgroundColor: "rgba(10, 10, 10, 0.85)",
+            borderBottom: "1px solid #171717",
+          }}
+        >
           {mixtapeUrl ? (
             <a
               href={mixtapeUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="block w-full font-extrabold text-xl rounded-full py-5 text-center bg-[#FF0000] hover:bg-[#CC0000] text-white shadow-lg shadow-[#FF0000]/20 transition-colors"
+              className="block w-full text-center font-extrabold text-[15px] rounded-full py-4 tracking-wide transition-colors"
+              style={{
+                backgroundColor: "#FF0033",
+                color: "#FFFFFF",
+                boxShadow: "0 8px 32px rgba(255, 0, 51, 0.25)",
+              }}
             >
-              OPEN IN YOUTUBE MUSIC
+              OPEN IN YOUTUBE MUSIC ↗
             </a>
           ) : (
-            <button 
+            <button
               onClick={handleBuildMixtape}
               disabled={isBuildingMixtape}
-              className={`w-full font-extrabold text-xl rounded-full py-5 flex items-center justify-center transition-colors ${
-                isBuildingMixtape 
-                  ? "bg-neutral-800 text-neutral-500 cursor-not-allowed" 
-                  : "bg-[#FF0000] hover:bg-[#CC0000] text-white shadow-lg shadow-[#FF0000]/20"
-              }`}
+              className="w-full font-extrabold text-[15px] rounded-full py-4 tracking-wide transition-colors"
+              style={{
+                backgroundColor: isBuildingMixtape ? "#262626" : "#FF0033",
+                color: isBuildingMixtape ? "#525252" : "#FFFFFF",
+                boxShadow: isBuildingMixtape ? "none" : "0 8px 32px rgba(255, 0, 51, 0.25)",
+                cursor: isBuildingMixtape ? "not-allowed" : "pointer",
+              }}
             >
-              {isBuildingMixtape ? "BUILDING MIXTAPE..." : "SAVE MIXTAPE TO YOUTUBE MUSIC"}
+              {isBuildingMixtape ? "BUILDING MIXTAPE..." : "BUILD MIXTAPE FROM THESE GIGS"}
             </button>
           )}
+        </div>
 
-          <div className="space-y-4 pt-4">
-            <h3 className="text-neutral-500 font-semibold tracking-wider text-sm uppercase">Playing Soon</h3>
-            
-            {gigs.length > 0 ? (
-              gigs.map((gig: any) => (
-                <div key={gig.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-xl flex justify-between items-center">
-                  <div className="pr-4">
-                    <p className="font-bold text-lg line-clamp-1" title={gig.name}>{gig.name}</p>
-                     <p className="text-neutral-400 text-sm line-clamp-1">
-                      {gig.dates?.start?.localDate
-                        ? new Date(gig.dates.start.localDate + 'T00:00:00').toLocaleDateString('en-AU')
-                        : ""}{" "}
-                      · {gig._embedded?.venues?.[0]?.name || "Venue TBA"}
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-2 shrink-0">
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => toggleRsvp(gig)}
-                        className={`font-bold px-3 py-2 rounded-full text-sm transition-colors ${
-                          rsvps.has(gig.id)
-                            ? "bg-[#FF0000] text-white"
-                            : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
-                        }`}
+        {/* ================ GIG LIST ================ */}
+        <div className="px-6 py-6 space-y-10">
+          {groupedGigs.length === 0 ? (
+            <p className="text-center py-12" style={{ color: "#525252" }}>
+              No gigs found in that range.
+            </p>
+          ) : (
+            groupedGigs.map((group) => (
+              <section key={group.label} className="space-y-4">
+                <h2
+                  className="font-black tracking-[-0.02em] leading-[1.05]"
+                  style={{
+                    fontSize: "32px",
+                    color: group.label === "TONIGHT" ? "#FF0033" : "#FAFAFA",
+                  }}
+                >
+                  {group.label}
+                </h2>
+
+                <div className="space-y-3">
+                  {group.gigs.map((gig: any) => {
+                    const dateInfo = formatGigDate(gig.dates?.start?.localDate);
+                    const isGoing = rsvps.has(gig.id);
+                    const count = rsvpCounts[gig.id] || 0;
+
+                    return (
+                      <article
+                        key={gig.id}
+                        className="relative overflow-hidden"
+                        style={{
+                          backgroundColor: "#171717",
+                          borderRadius: "16px",
+                          borderLeft: isGoing ? "3px solid #FF0033" : "3px solid transparent",
+                        }}
                       >
-                        {rsvps.has(gig.id) ? "Going ✓" : "I'm going"}
-                      </button>
-                      {rsvpCounts[gig.id] > 0 && (
-                        <button
-                          onClick={() => viewAttendees(gig)}
-                          className="bg-neutral-800 text-neutral-400 hover:text-white font-bold px-3 py-2 rounded-full text-sm transition-colors"
-                        >
-                          {rsvpCounts[gig.id]}
-                        </button>
-                      )}
-                    </div>
-                    <a 
-                      href={gig.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="bg-white text-black font-bold px-4 py-2 rounded-full text-sm hover:bg-neutral-200 text-center"
-                    >
-                      Tickets
-                    </a>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-neutral-500 text-center">No gigs found in that range.</p>
-            )}
-          </div>
+                        <div className="flex items-start gap-4 p-4">
+                          {/* Stacked date block */}
+                          <div
+                            className="shrink-0 flex flex-col items-center justify-center rounded-xl px-3 py-2.5"
+                            style={{
+                              backgroundColor: "#0A0A0A",
+                              minWidth: "56px",
+                            }}
+                          >
+                            <span
+                              className="text-[10px] font-semibold tracking-wider"
+                              style={{ color: "#525252" }}
+                            >
+                              {dateInfo.day}
+                            </span>
+                            <span
+                              className="font-black leading-none my-0.5"
+                              style={{ fontSize: "22px", color: "#FAFAFA" }}
+                            >
+                              {dateInfo.date}
+                            </span>
+                            <span
+                              className="text-[10px] font-semibold tracking-wider"
+                              style={{ color: "#525252" }}
+                            >
+                              {dateInfo.month}
+                            </span>
+                          </div>
 
+                          {/* Gig details */}
+                          <div className="flex-1 min-w-0">
+                            <h3
+                              className="font-extrabold tracking-[-0.01em] leading-[1.2]"
+                              style={{ fontSize: "18px", color: "#FAFAFA" }}
+                            >
+                              {gig.name}
+                            </h3>
+                            <p className="text-[13px] mt-1" style={{ color: "#A3A3A3" }}>
+                              {gig._embedded?.venues?.[0]?.name || "Venue TBA"}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Actions row */}
+                        <div
+                          className="flex items-center gap-2 px-4 pb-4"
+                          style={{ paddingTop: "4px" }}
+                        >
+                          <button
+                            onClick={() => toggleRsvp(gig)}
+                            className="font-bold text-[12px] uppercase tracking-wider px-4 py-2 rounded-full transition-colors"
+                            style={{
+                              backgroundColor: isGoing ? "#FF0033" : "#262626",
+                              color: isGoing ? "#FFFFFF" : "#A3A3A3",
+                            }}
+                          >
+                            {isGoing ? "GOING ✓" : "I'M GOING"}
+                          </button>
+
+                          {count > 0 && (
+                            <button
+                              onClick={() => viewAttendees(gig)}
+                              className="font-bold text-[12px] px-3 py-2 rounded-full transition-colors"
+                              style={{ backgroundColor: "#262626", color: "#A3A3A3" }}
+                            >
+                              {count} going
+                            </button>
+                          )}
+
+                          <div className="flex-1" />
+
+                          <a
+                            href={gig.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-bold text-[12px] uppercase tracking-wider px-4 py-2 rounded-full transition-colors"
+                            style={{ backgroundColor: "#FAFAFA", color: "#0A0A0A" }}
+                          >
+                            Tickets
+                          </a>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ))
+          )}
         </div>
       </main>
     );
   }
 
+  // ==========================================================================
+  // LANDING VIEW
+  // ==========================================================================
+
   return (
-    <main className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center p-6">
-      <div className="max-w-md w-full text-center space-y-10">
-        
-        <div className="space-y-3">
-          <h1 className="text-6xl font-black tracking-tighter">OTOKI</h1>
-          <p className="text-neutral-400 font-medium text-lg">
+    <main
+      className="min-h-screen flex flex-col items-center justify-center text-white p-6"
+      style={{ backgroundColor: "#0A0A0A" }}
+    >
+      <div className="max-w-md w-full space-y-12">
+        {/* Wordmark + tagline */}
+        <div className="text-center space-y-3">
+          <h1
+            className="font-black tracking-[-0.04em] leading-[0.9]"
+            style={{ fontSize: "72px" }}
+          >
+            OTOKI
+          </h1>
+          <p className="text-[16px] font-medium" style={{ color: "#A3A3A3" }}>
             Hear who's playing near you tonight.
           </p>
-            {user ? (
-              <div className="flex gap-3 justify-center">
-                <a href="/profile" className="text-neutral-500 hover:text-white text-sm transition-colors">
-                  Profile
-                </a>
-                <span className="text-neutral-700">·</span>
-                <a href="/messages" className="text-neutral-500 hover:text-white text-sm transition-colors relative">
-                  Messages
-                  {unreadCount > 0 && (
-                    <span className="ml-1 bg-[#FF0000] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                      {unreadCount}
-                    </span>
-                  )}
-                </a>
-                <span className="text-neutral-700">·</span>
-                <button 
-                  onClick={async () => { await supabase.auth.signOut(); setUser(null); }}
-                  className="text-neutral-500 hover:text-white text-sm transition-colors"
-                >
-                  Log out
-                </button>
-              </div>
-            ) : (
-              <a href="/auth" className="text-neutral-500 hover:text-white text-sm transition-colors">
-                Sign in
+          {!user && (
+            <div className="pt-2">
+              <a
+                href="/auth"
+                className="text-[13px] font-semibold transition-colors"
+                style={{ color: "#525252" }}
+              >
+                Sign in →
               </a>
-            )}
+            </div>
+          )}
         </div>
 
+        {/* Form */}
         <div className="space-y-4">
-          <select className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-4 text-center focus:outline-none focus:ring-2 focus:ring-[#FF0000] appearance-none">
-            <option value="CBD">Melbourne CBD</option>
-            <option value="Inner North">Inner North</option>
-            <option value="Werribee">Werribee</option>
-          </select>
+          <div className="space-y-1.5">
+            <label
+              className="text-[11px] font-semibold uppercase tracking-[0.1em] block"
+              style={{ color: "#525252" }}
+            >
+              Location
+            </label>
+            <select
+              className="w-full text-[15px] font-medium rounded-xl px-4 py-4 appearance-none focus:outline-none"
+              style={{
+                backgroundColor: "#171717",
+                border: "1px solid #262626",
+                color: "#FAFAFA",
+              }}
+            >
+              <option value="CBD">Melbourne CBD</option>
+              <option value="Inner North">Inner North</option>
+              <option value="Werribee">Werribee</option>
+            </select>
+          </div>
 
-          {/* Date range pickers */}
           <div className="flex gap-3">
-            <div className="flex-1 space-y-1">
-              <label className="text-neutral-500 text-xs uppercase tracking-wider">From</label>
+            <div className="flex-1 space-y-1.5">
+              <label
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] block"
+                style={{ color: "#525252" }}
+              >
+                From
+              </label>
               <input
                 type="date"
                 value={fromDate}
                 min={today}
-                onChange={e => setFromDate(e.target.value)}
-                className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000]"
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-full text-[15px] font-medium rounded-xl px-4 py-4 focus:outline-none"
+                style={{
+                  backgroundColor: "#171717",
+                  border: "1px solid #262626",
+                  color: "#FAFAFA",
+                }}
               />
             </div>
-            <div className="flex-1 space-y-1">
-              <label className="text-neutral-500 text-xs uppercase tracking-wider">To</label>
+            <div className="flex-1 space-y-1.5">
+              <label
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] block"
+                style={{ color: "#525252" }}
+              >
+                To
+              </label>
               <input
                 type="date"
                 value={toDate}
                 min={fromDate}
-                onChange={e => setToDate(e.target.value)}
-                className="w-full bg-neutral-900 border border-neutral-800 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000]"
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-full text-[15px] font-medium rounded-xl px-4 py-4 focus:outline-none"
+                style={{
+                  backgroundColor: "#171717",
+                  border: "1px solid #262626",
+                  color: "#FAFAFA",
+                }}
               />
             </div>
           </div>
 
-          <button 
+          <button
             onClick={handleGenerate}
             disabled={isGenerating}
-            className={`w-full font-extrabold text-xl rounded-full py-5 transition-colors ${
-              isGenerating 
-                ? "bg-neutral-800 text-neutral-500 cursor-not-allowed" 
-                : "bg-[#FF0000] hover:bg-[#CC0000] text-white shadow-lg shadow-[#FF0000]/20"
-            }`}
+            className="w-full font-extrabold text-[15px] rounded-full py-5 tracking-wide transition-colors mt-2"
+            style={{
+              backgroundColor: isGenerating ? "#262626" : "#FF0033",
+              color: isGenerating ? "#525252" : "#FFFFFF",
+              boxShadow: isGenerating ? "none" : "0 8px 32px rgba(255, 0, 51, 0.3)",
+              cursor: isGenerating ? "not-allowed" : "pointer",
+            }}
           >
-            {isGenerating ? "FINDING GIGS..." : "GENERATE PLAYLIST"}
+            {isGenerating ? "FINDING GIGS..." : "FIND GIGS"}
           </button>
         </div>
 
-</div>
-      <footer className="absolute bottom-6">
-        <a href="/privacy" className="text-neutral-600 hover:text-neutral-400 text-xs transition-colors">
-          Privacy Policy
-        </a>
-      </footer>
+        {/* Footer */}
+        <div className="text-center pt-4">
+          <a
+            href="/privacy"
+            className="text-[11px] transition-colors"
+            style={{ color: "#525252" }}
+          >
+            Privacy Policy
+          </a>
+        </div>
+      </div>
     </main>
   );
 }
