@@ -17,6 +17,9 @@ export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [rsvps, setRsvps] = useState<Set<string>>(new Set());
   const [rsvpCounts, setRsvpCounts] = useState<Record<string, number>>({});
+  const [viewingGig, setViewingGig] = useState<any>(null);
+  const [attendees, setAttendees] = useState<any[]>([]);
+  const [loadingAttendees, setLoadingAttendees] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
@@ -77,6 +80,19 @@ export default function Home() {
       setRsvps(new Set(rsvps));
       setRsvpCounts(prev => ({ ...prev, [gigId]: (prev[gigId] || 0) + 1 }));
     }
+  };
+
+  const viewAttendees = async (gig: any) => {
+    setViewingGig(gig);
+    setLoadingAttendees(true);
+    
+    const { data } = await supabase
+      .from('gig_rsvps')
+      .select('user_id, profiles(display_name, bio, favourite_genres, favourite_venues)')
+      .eq('gig_id', gig.id);
+    
+    setAttendees(data || []);
+    setLoadingAttendees(false);
   };
 
   useEffect(() => {
@@ -148,6 +164,54 @@ export default function Home() {
   if (showDashboard) {
     return (
       <main className="min-h-screen bg-neutral-950 text-white flex flex-col items-center p-6 pt-12">
+        {viewingGig && (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-6" onClick={() => setViewingGig(null)}>
+            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-sm w-full max-h-[80vh] overflow-y-auto p-6 space-y-4" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="font-bold text-lg">{viewingGig.name}</h3>
+                  <p className="text-neutral-500 text-sm">
+                    {viewingGig.dates?.start?.localDate
+                      ? new Date(viewingGig.dates.start.localDate + 'T00:00:00').toLocaleDateString('en-AU')
+                      : ""}{" "}
+                    · {viewingGig._embedded?.venues?.[0]?.name || "Venue TBA"}
+                  </p>
+                </div>
+                <button onClick={() => setViewingGig(null)} className="text-neutral-500 hover:text-white text-xl">✕</button>
+              </div>
+
+              <p className="text-neutral-500 text-xs uppercase tracking-wider font-semibold">
+                {attendees.length} {attendees.length === 1 ? "person" : "people"} going
+              </p>
+
+              {loadingAttendees ? (
+                <p className="text-neutral-500 text-center py-4">Loading...</p>
+              ) : attendees.length === 0 ? (
+                <p className="text-neutral-500 text-center py-4">No one yet — be the first!</p>
+              ) : (
+                <div className="space-y-3">
+                  {attendees.map((a: any, i: number) => (
+                    <div key={i} className="bg-neutral-800 rounded-xl p-3 space-y-1">
+                      <a href={`/profile/${a.user_id}`} className="font-bold hover:text-red-400 transition-colors">
+                        {a.profiles?.display_name || "Anonymous"}
+                      </a>
+                      {a.profiles?.bio && (
+                        <p className="text-neutral-400 text-sm">{a.profiles.bio}</p>
+                      )}
+                      {a.profiles?.favourite_genres?.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          {a.profiles.favourite_genres.map((g: string) => (
+                            <span key={g} className="bg-neutral-700 text-neutral-300 text-xs px-2 py-0.5 rounded-full">{g}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         <div className="max-w-md w-full space-y-8">
           
           <div className="text-center space-y-2">
@@ -185,17 +249,26 @@ export default function Home() {
                     </p>
                   </div>
                   <div className="flex flex-col gap-2 shrink-0">
-                    <button
-                      onClick={() => toggleRsvp(gig)}
-                      className={`font-bold px-4 py-2 rounded-full text-sm transition-colors ${
-                        rsvps.has(gig.id)
-                          ? "bg-[#FF0000] text-white"
-                          : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
-                      }`}
-                    >
-                      {rsvps.has(gig.id) ? "Going ✓" : "I'm going"}
-                      {rsvpCounts[gig.id] ? ` · ${rsvpCounts[gig.id]}` : ""}
-                    </button>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => toggleRsvp(gig)}
+                        className={`font-bold px-3 py-2 rounded-full text-sm transition-colors ${
+                          rsvps.has(gig.id)
+                            ? "bg-[#FF0000] text-white"
+                            : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
+                        }`}
+                      >
+                        {rsvps.has(gig.id) ? "Going ✓" : "I'm going"}
+                      </button>
+                      {rsvpCounts[gig.id] > 0 && (
+                        <button
+                          onClick={() => viewAttendees(gig)}
+                          className="bg-neutral-800 text-neutral-400 hover:text-white font-bold px-3 py-2 rounded-full text-sm transition-colors"
+                        >
+                          {rsvpCounts[gig.id]}
+                        </button>
+                      )}
+                    </div>
                     <a 
                       href={gig.url} 
                       target="_blank" 
@@ -227,12 +300,18 @@ export default function Home() {
             Hear who's playing near you tonight.
           </p>
             {user ? (
-              <button 
-                onClick={async () => { await supabase.auth.signOut(); setUser(null); }}
-                className="text-neutral-500 hover:text-white text-sm transition-colors"
-              >
-                Signed in as {user.email} · Log out
-              </button>
+              <div className="flex gap-3 justify-center">
+                <a href="/profile" className="text-neutral-500 hover:text-white text-sm transition-colors">
+                  Profile
+                </a>
+                <span className="text-neutral-700">·</span>
+                <button 
+                  onClick={async () => { await supabase.auth.signOut(); setUser(null); }}
+                  className="text-neutral-500 hover:text-white text-sm transition-colors"
+                >
+                  Log out
+                </button>
+              </div>
             ) : (
               <a href="/auth" className="text-neutral-500 hover:text-white text-sm transition-colors">
                 Sign in
