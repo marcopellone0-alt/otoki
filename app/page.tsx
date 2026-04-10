@@ -8,6 +8,7 @@ export default function Home() {
   const [showDashboard, setShowDashboard] = useState(false);
   const [gigs, setGigs] = useState<any[]>([]);
   const [isBuildingMixtape, setIsBuildingMixtape] = useState(false);
+  const [mixtapeUrl, setMixtapeUrl] = useState<string | null>(null);
 
   // Default date range: today → 7 days from now
   const today = new Date().toISOString().split('T')[0];
@@ -167,6 +168,7 @@ export default function Home() {
 
   const handleBuildMixtape = async () => {
     setIsBuildingMixtape(true);
+    setMixtapeUrl(null);
     try {
       const response = await fetch('/api/yt-mixtape', {
         method: 'POST',
@@ -182,7 +184,7 @@ export default function Home() {
 
       const data = await response.json();
       if (data.url) {
-        window.open(data.url, '_blank');
+        setMixtapeUrl(data.url);
       } else {
         alert("Something went wrong building the mixtape.");
       }
@@ -273,17 +275,28 @@ export default function Home() {
             </p>
           </div>
 
-          <button 
-            onClick={handleBuildMixtape}
-            disabled={isBuildingMixtape}
-            className={`w-full font-extrabold text-xl rounded-full py-5 flex items-center justify-center transition-colors ${
-              isBuildingMixtape 
-                ? "bg-neutral-800 text-neutral-500 cursor-not-allowed" 
-                : "bg-[#FF0000] hover:bg-[#CC0000] text-white shadow-lg shadow-[#FF0000]/20"
-            }`}
-          >
-            {isBuildingMixtape ? "BUILDING MIXTAPE..." : "SAVE MIXTAPE TO YOUTUBE MUSIC"}
-          </button>
+          {mixtapeUrl ? (
+            <a
+              href={mixtapeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block w-full font-extrabold text-xl rounded-full py-5 text-center bg-[#FF0000] hover:bg-[#CC0000] text-white shadow-lg shadow-[#FF0000]/20 transition-colors"
+            >
+              OPEN IN YOUTUBE MUSIC
+            </a>
+          ) : (
+            <button 
+              onClick={handleBuildMixtape}
+              disabled={isBuildingMixtape}
+              className={`w-full font-extrabold text-xl rounded-full py-5 flex items-center justify-center transition-colors ${
+                isBuildingMixtape 
+                  ? "bg-neutral-800 text-neutral-500 cursor-not-allowed" 
+                  : "bg-[#FF0000] hover:bg-[#CC0000] text-white shadow-lg shadow-[#FF0000]/20"
+              }`}
+            >
+              {isBuildingMixtape ? "BUILDING MIXTAPE..." : "SAVE MIXTAPE TO YOUTUBE MUSIC"}
+            </button>
+          )}
 
           <div className="space-y-4 pt-4">
             <h3 className="text-neutral-500 font-semibold tracking-wider text-sm uppercase">Playing Soon</h3>
