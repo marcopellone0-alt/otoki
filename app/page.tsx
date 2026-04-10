@@ -305,6 +305,10 @@ export default function Home() {
                   Profile
                 </a>
                 <span className="text-neutral-700">·</span>
+                <a href="/messages" className="text-neutral-500 hover:text-white text-sm transition-colors">
+                  Messages
+                </a>
+                <span className="text-neutral-700">·</span>
                 <button 
                   onClick={async () => { await supabase.auth.signOut(); setUser(null); }}
                   className="text-neutral-500 hover:text-white text-sm transition-colors"

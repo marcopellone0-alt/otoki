@@ -25,6 +25,8 @@ export default function Profile() {
   const [bio, setBio] = useState("");
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [selectedVenues, setSelectedVenues] = useState<string[]>([]);
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -47,6 +49,7 @@ export default function Profile() {
         setBio(profile.bio || "");
         setSelectedGenres(profile.favourite_genres || []);
         setSelectedVenues(profile.favourite_venues || []);
+        setAvatarUrl(profile.avatar_url || "");
       }
       setLoading(false);
     };
@@ -65,6 +68,24 @@ export default function Profile() {
     );
   };
 
+  const uploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    setUploading(true);
+
+    const filePath = `${user.id}/avatar.${file.name.split('.').pop()}`;
+
+    const { error } = await supabase.storage
+      .from("avatars")
+      .upload(filePath, file, { upsert: true });
+
+    if (!error) {
+      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
+      setAvatarUrl(data.publicUrl);
+    }
+    setUploading(false);
+  };
+
   const handleSave = async () => {
     if (!user) return;
     setSaving(true);
@@ -78,6 +99,7 @@ export default function Profile() {
         bio,
         favourite_genres: selectedGenres,
         favourite_venues: selectedVenues,
+        avatar_url: avatarUrl,
       });
 
     if (error) {
@@ -111,7 +133,24 @@ export default function Profile() {
         </div>
 
         <div className="space-y-6">
-
+{/* Avatar */}
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-24 h-24 rounded-full bg-neutral-800 overflow-hidden">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-neutral-600 text-3xl font-bold">
+                  {displayName ? displayName[0].toUpperCase() : "?"}
+                </div>
+              )}
+            </div>
+            <label className={`text-sm px-4 py-1.5 rounded-full cursor-pointer transition-colors ${
+              uploading ? "bg-neutral-800 text-neutral-500" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
+            }`}>
+              {uploading ? "Uploading..." : "Change photo"}
+              <input type="file" accept="image/*" onChange={uploadAvatar} className="hidden" />
+            </label>
+          </div>
           {/* Display Name */}
           <div className="space-y-1">
             <label className="text-neutral-500 text-xs uppercase tracking-wider">Name</label>

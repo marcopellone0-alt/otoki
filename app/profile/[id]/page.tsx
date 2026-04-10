@@ -79,6 +79,15 @@ export default function PublicProfile() {
           {profile.bio && (
             <p className="text-neutral-400">{profile.bio}</p>
           )}
+          {currentUser && currentUser.id !== userId && (
+            
+              <a href={"/messages?to=" + userId}
+              className="inline-block bg-[#FF0000] hover:bg-[#CC0000] text-white 
+              font-bold px-6 py-2 rounded-full text-sm transition-colors mt-2"
+            >
+              Message
+            </a>
+          )}
         </div>
 
         {/* Genres */}
