@@ -40,6 +40,15 @@ export default function Profile() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [uploading, setUploading] = useState(false);
 
+  // Baseline snapshot of saved values — used to detect unsaved changes
+  const [baseline, setBaseline] = useState<{
+    displayName: string;
+    bio: string;
+    selectedGenres: string[];
+    selectedVenues: string[];
+    avatarUrl: string;
+  } | null>(null);
+
   const [upcomingGigs, setUpcomingGigs] = useState<any[]>([]);
 
   useEffect(() => {
@@ -59,11 +68,23 @@ export default function Profile() {
         .single();
 
       if (profile) {
-        setDisplayName(profile.display_name || "");
-        setBio(profile.bio || "");
-        setSelectedGenres(profile.favourite_genres || []);
-        setSelectedVenues(profile.favourite_venues || []);
-        setAvatarUrl(profile.avatar_url || "");
+        const name = profile.display_name || "";
+        const b = profile.bio || "";
+        const genres = profile.favourite_genres || [];
+        const venues = profile.favourite_venues || [];
+        const avatar = profile.avatar_url || "";
+        setDisplayName(name);
+        setBio(b);
+        setSelectedGenres(genres);
+        setSelectedVenues(venues);
+        setAvatarUrl(avatar);
+        setBaseline({
+          displayName: name,
+          bio: b,
+          selectedGenres: genres,
+          selectedVenues: venues,
+          avatarUrl: avatar,
+        });
       }
 
       // Load own upcoming RSVPs
@@ -80,6 +101,17 @@ export default function Profile() {
     };
     load();
   }, []);
+
+  // Compute dirty state — true if any field differs from baseline
+  const hasUnsavedChanges = baseline
+    ? displayName !== baseline.displayName ||
+      bio !== baseline.bio ||
+      JSON.stringify(selectedGenres.slice().sort()) !==
+        JSON.stringify(baseline.selectedGenres.slice().sort()) ||
+      JSON.stringify(selectedVenues.slice().sort()) !==
+        JSON.stringify(baseline.selectedVenues.slice().sort()) ||
+      avatarUrl.split("?")[0] !== baseline.avatarUrl
+    : false;
 
   // Auto-clear "saved" indicator after 2 seconds
   useEffect(() => {
@@ -124,6 +156,7 @@ export default function Profile() {
     if (!user) return;
     setSaving(true);
 
+    const cleanAvatarUrl = avatarUrl.split("?")[0]; // strip cache-bust param
     const { error } = await supabase
       .from("profiles")
       .upsert({
@@ -132,11 +165,19 @@ export default function Profile() {
         bio,
         favourite_genres: selectedGenres,
         favourite_venues: selectedVenues,
-        avatar_url: avatarUrl.split("?")[0], // strip cache-bust param before saving
+        avatar_url: cleanAvatarUrl,
       });
 
     if (!error) {
       setSavedAt(Date.now());
+      // Reset baseline to current values so dirty state clears
+      setBaseline({
+        displayName,
+        bio,
+        selectedGenres: [...selectedGenres],
+        selectedVenues: [...selectedVenues],
+        avatarUrl: cleanAvatarUrl,
+      });
     }
     setSaving(false);
   };
@@ -448,50 +489,7 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* ================ STICKY SAVE BAR ================ */}
-      <div
-        className="sticky bottom-0 z-20 px-6 py-4"
-        style={{
-          backgroundColor: "#0A0A0A",
-          borderTop: "1px solid #171717",
-          boxShadow: "0 -8px 24px rgba(0, 0, 0, 0.6)",
-        }}
-      >
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full font-extrabold text-[15px] rounded-full py-4 tracking-wide transition-colors flex items-center justify-center gap-2"
-          style={{
-            backgroundColor: savedAt
-              ? "#171717"
-              : saving
-              ? "#262626"
-              : "#FF0033",
-            color: savedAt
-              ? "#A3A3A3"
-              : saving
-              ? "#525252"
-              : "#FFFFFF",
-            border: savedAt ? "1px solid #262626" : "none",
-            boxShadow:
-              saving || savedAt ? "none" : "0 8px 24px rgba(255, 0, 51, 0.25)",
-            cursor: saving ? "not-allowed" : "pointer",
-          }}
-        >
-          {savedAt ? (
-            <>
-              <Check size={16} />
-              SAVED
-            </>
-          ) : saving ? (
-            "SAVING..."
-          ) : (
-            "SAVE PROFILE"
-          )}
-        </button>
-      </div>
-
-      {/* ================ LOGOUT (footer) ================ */}
+      {/* ================ LOGOUT (footer, now in normal flow) ================ */}
       <div
         className="px-6 py-8 mt-2 text-center"
         style={{ borderTop: "1px solid #171717" }}
@@ -505,6 +503,73 @@ export default function Profile() {
           Log out
         </button>
       </div>
+
+      {/* Spacer to reserve room for the floating save bar when it's visible */}
+      {(hasUnsavedChanges || saving || savedAt) && (
+        <div aria-hidden style={{ height: "88px" }} />
+      )}
+
+      {/* ================ FLOATING SAVE BAR ================ */}
+      {/* Positioned fixed, sits above the tab bar (tab bar = ~80px tall) */}
+      {/* Only visible when there are unsaved changes, or during save, or briefly after save */}
+      {(hasUnsavedChanges || saving || savedAt) && (
+        <div
+          className="fixed left-0 right-0 z-40 px-6 py-4"
+          style={{
+            bottom: "80px", // sit above tab bar
+            backgroundColor: "#0A0A0A",
+            borderTop: "1px solid #171717",
+            boxShadow: "0 -8px 24px rgba(0, 0, 0, 0.8)",
+          }}
+        >
+          <div className="max-w-md mx-auto">
+            {/* Unsaved changes indicator */}
+            {hasUnsavedChanges && !saving && !savedAt && (
+              <p
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-2 text-center"
+                style={{ color: "#FF0033" }}
+              >
+                ● Unsaved changes
+              </p>
+            )}
+
+            <button
+              onClick={handleSave}
+              disabled={saving || (!hasUnsavedChanges && !savedAt)}
+              className="w-full font-extrabold text-[15px] rounded-full py-4 tracking-wide transition-colors flex items-center justify-center gap-2"
+              style={{
+                backgroundColor: savedAt
+                  ? "#171717"
+                  : saving
+                  ? "#262626"
+                  : "#FF0033",
+                color: savedAt
+                  ? "#A3A3A3"
+                  : saving
+                  ? "#525252"
+                  : "#FFFFFF",
+                border: savedAt ? "1px solid #262626" : "none",
+                boxShadow:
+                  saving || savedAt
+                    ? "none"
+                    : "0 8px 24px rgba(255, 0, 51, 0.35)",
+                cursor: saving ? "not-allowed" : "pointer",
+              }}
+            >
+              {savedAt ? (
+                <>
+                  <Check size={16} />
+                  SAVED
+                </>
+              ) : saving ? (
+                "SAVING..."
+              ) : (
+                "SAVE CHANGES"
+              )}
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
