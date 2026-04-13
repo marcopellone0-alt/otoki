@@ -205,14 +205,55 @@ export default function Profile() {
       className="min-h-screen text-white"
       style={{ backgroundColor: "#0A0A0A" }}
     >
-      {/* ================ HEADER ================ */}
-      <div className="px-6 pt-12 pb-2">
+      {/* ================ STICKY TOP BAR WITH SAVE ================ */}
+      <div
+        className="sticky top-0 z-30 flex items-center justify-between px-6"
+        style={{
+          backgroundColor: "#0A0A0A",
+          borderBottom: "1px solid #171717",
+          height: "56px",
+        }}
+      >
         <p
-          className="text-[11px] font-semibold uppercase tracking-[0.15em] mb-3"
+          className="text-[11px] font-semibold uppercase tracking-[0.15em]"
           style={{ color: "#525252" }}
         >
-          Your profile
+          Edit profile
         </p>
+
+        <button
+          onClick={handleSave}
+          disabled={saving || (!hasUnsavedChanges && !savedAt)}
+          className="font-extrabold text-[13px] uppercase tracking-[0.1em] transition-colors flex items-center gap-1.5"
+          style={{
+            color: savedAt
+              ? "#A3A3A3"
+              : saving
+              ? "#525252"
+              : hasUnsavedChanges
+              ? "#FF0033"
+              : "#525252",
+            cursor:
+              saving || (!hasUnsavedChanges && !savedAt)
+                ? "default"
+                : "pointer",
+          }}
+        >
+          {savedAt ? (
+            <>
+              <Check size={14} />
+              Saved
+            </>
+          ) : saving ? (
+            "Saving..."
+          ) : (
+            "Save"
+          )}
+        </button>
+      </div>
+
+      {/* ================ TAGLINE ================ */}
+      <div className="px-6 pt-8 pb-2">
         <h1
           className="font-black tracking-[-0.02em] leading-[1.05] mb-2"
           style={{ fontSize: "36px", color: "#FAFAFA" }}
@@ -489,7 +530,7 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* ================ LOGOUT (footer, now in normal flow) ================ */}
+      {/* ================ LOGOUT (footer, in normal flow) ================ */}
       <div
         className="px-6 py-8 mt-2 text-center"
         style={{ borderTop: "1px solid #171717" }}
@@ -503,73 +544,6 @@ export default function Profile() {
           Log out
         </button>
       </div>
-
-      {/* Spacer to reserve room for the floating save bar when it's visible */}
-      {(hasUnsavedChanges || saving || savedAt) && (
-        <div aria-hidden style={{ height: "88px" }} />
-      )}
-
-      {/* ================ FLOATING SAVE BAR ================ */}
-      {/* Positioned fixed, sits above the tab bar (tab bar = ~80px tall) */}
-      {/* Only visible when there are unsaved changes, or during save, or briefly after save */}
-      {(hasUnsavedChanges || saving || savedAt) && (
-        <div
-          className="fixed left-0 right-0 z-40 px-6 py-4"
-          style={{
-            bottom: "80px", // sit above tab bar
-            backgroundColor: "#0A0A0A",
-            borderTop: "1px solid #171717",
-            boxShadow: "0 -8px 24px rgba(0, 0, 0, 0.8)",
-          }}
-        >
-          <div className="max-w-md mx-auto">
-            {/* Unsaved changes indicator */}
-            {hasUnsavedChanges && !saving && !savedAt && (
-              <p
-                className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-2 text-center"
-                style={{ color: "#FF0033" }}
-              >
-                ● Unsaved changes
-              </p>
-            )}
-
-            <button
-              onClick={handleSave}
-              disabled={saving || (!hasUnsavedChanges && !savedAt)}
-              className="w-full font-extrabold text-[15px] rounded-full py-4 tracking-wide transition-colors flex items-center justify-center gap-2"
-              style={{
-                backgroundColor: savedAt
-                  ? "#171717"
-                  : saving
-                  ? "#262626"
-                  : "#FF0033",
-                color: savedAt
-                  ? "#A3A3A3"
-                  : saving
-                  ? "#525252"
-                  : "#FFFFFF",
-                border: savedAt ? "1px solid #262626" : "none",
-                boxShadow:
-                  saving || savedAt
-                    ? "none"
-                    : "0 8px 24px rgba(255, 0, 51, 0.35)",
-                cursor: saving ? "not-allowed" : "pointer",
-              }}
-            >
-              {savedAt ? (
-                <>
-                  <Check size={16} />
-                  SAVED
-                </>
-              ) : saving ? (
-                "SAVING..."
-              ) : (
-                "SAVE CHANGES"
-              )}
-            </button>
-          </div>
-        </div>
-      )}
     </main>
   );
 }
