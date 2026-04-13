@@ -21,22 +21,17 @@ export default function Messages() {
   }, [activeChat]);
 
   // Dispatch a custom event when entering/leaving chat mode so the global
-  // TabBar (in layout.tsx) can hide itself
+  // TabBar (in layout.tsx) can hide itself.
+  // Note: no cleanup function — the cleanup would fire BEFORE the next effect,
+  // causing a TabBar flash and a re-render loop with the parent state.
+  // Instead, the TabBar resets its own state when pathname changes (handled there).
   useEffect(() => {
+    if (typeof window === "undefined") return;
     window.dispatchEvent(
       new CustomEvent("otoki:chat-active", {
         detail: { active: !!activeChat },
       })
     );
-    // Also dispatch "inactive" when this component unmounts (e.g. user
-    // navigates away from /messages while in a chat)
-    return () => {
-      window.dispatchEvent(
-        new CustomEvent("otoki:chat-active", {
-          detail: { active: false },
-        })
-      );
-    };
   }, [activeChat]);
 
   useEffect(() => {
