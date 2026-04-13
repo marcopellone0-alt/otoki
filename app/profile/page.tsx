@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { Camera, LogOut, Check } from "lucide-react";
-import { isValidYouTubeUrl } from "../lib/youtube";
+import { Camera, LogOut, Check, Music, X } from "lucide-react";
+import { extractYouTubeId, getYouTubeThumbnail } from "../lib/youtube";
+import SongPicker from "../components/SongPicker";
 
 const GENRES = [
   "Rock", "Indie", "Pop", "Electronic", "Hip Hop", "R&B", "Jazz",
@@ -40,7 +41,9 @@ export default function Profile() {
   const [selectedVenues, setSelectedVenues] = useState<string[]>([]);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [favouriteSongUrl, setFavouriteSongUrl] = useState("");
+  const [favouriteSongTitle, setFavouriteSongTitle] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Baseline snapshot of saved values — used to detect unsaved changes
   const [baseline, setBaseline] = useState<{
@@ -120,10 +123,6 @@ export default function Profile() {
       favouriteSongUrl !== baseline.favouriteSongUrl
     : false;
 
-  // Validate the song URL — empty is fine (means "remove song")
-  const songUrlIsValid =
-    favouriteSongUrl.trim() === "" || isValidYouTubeUrl(favouriteSongUrl);
-
   // Auto-clear "saved" indicator after 2 seconds
   useEffect(() => {
     if (savedAt) {
@@ -163,9 +162,20 @@ export default function Profile() {
     setUploading(false);
   };
 
+  const handleSongSelect = (videoId: string, title: string) => {
+    // Store as a canonical youtube.com watch URL
+    setFavouriteSongUrl(`https://www.youtube.com/watch?v=${videoId}`);
+    setFavouriteSongTitle(title);
+    setPickerOpen(false);
+  };
+
+  const handleSongRemove = () => {
+    setFavouriteSongUrl("");
+    setFavouriteSongTitle(null);
+  };
+
   const handleSave = async () => {
     if (!user) return;
-    if (!songUrlIsValid) return; // Block save on invalid URL
     setSaving(true);
 
     const cleanAvatarUrl = avatarUrl.split("?")[0]; // strip cache-bust param
@@ -216,6 +226,12 @@ export default function Profile() {
     );
   }
 
+  // Derive thumbnail for the current saved/picked song
+  const songVideoId = favouriteSongUrl
+    ? extractYouTubeId(favouriteSongUrl)
+    : null;
+  const songThumbnail = songVideoId ? getYouTubeThumbnail(songVideoId) : null;
+
   return (
     <main
       className="min-h-screen text-white"
@@ -239,20 +255,18 @@ export default function Profile() {
 
         <button
           onClick={handleSave}
-          disabled={saving || !songUrlIsValid || (!hasUnsavedChanges && !savedAt)}
+          disabled={saving || (!hasUnsavedChanges && !savedAt)}
           className="font-extrabold text-[13px] uppercase tracking-[0.1em] transition-colors flex items-center gap-1.5"
           style={{
             color: savedAt
               ? "#A3A3A3"
               : saving
               ? "#525252"
-              : !songUrlIsValid
-              ? "#525252"
               : hasUnsavedChanges
               ? "#FF0033"
               : "#525252",
             cursor:
-              saving || !songUrlIsValid || (!hasUnsavedChanges && !savedAt)
+              saving || (!hasUnsavedChanges && !savedAt)
                 ? "default"
                 : "pointer",
           }}
@@ -394,33 +408,75 @@ export default function Profile() {
           >
             Favourite song
           </label>
-          <input
-            type="url"
-            value={favouriteSongUrl}
-            onChange={(e) => setFavouriteSongUrl(e.target.value)}
-            placeholder="https://youtube.com/watch?v=..."
-            inputMode="url"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            className="w-full text-[14px] rounded-xl px-4 py-3 focus:outline-none"
-            style={{
-              backgroundColor: "#171717",
-              border: songUrlIsValid
-                ? "1px solid #262626"
-                : "1px solid #FF0033",
-              color: "#FAFAFA",
-            }}
-          />
+
+          {songVideoId ? (
+            // Selected song preview card
+            <div
+              className="flex items-center gap-3 p-3 rounded-xl"
+              style={{
+                backgroundColor: "#171717",
+                border: "1px solid #262626",
+              }}
+            >
+              {songThumbnail && (
+                <img
+                  src={songThumbnail}
+                  alt=""
+                  className="shrink-0 object-cover"
+                  style={{
+                    width: "64px",
+                    height: "48px",
+                    borderRadius: "6px",
+                  }}
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <p
+                  className="text-[13px] font-semibold truncate"
+                  style={{ color: "#FAFAFA" }}
+                >
+                  {favouriteSongTitle || "Selected song"}
+                </p>
+                <button
+                  onClick={() => setPickerOpen(true)}
+                  className="text-[11px] font-semibold uppercase tracking-wider mt-0.5 transition-colors"
+                  style={{ color: "#FF0033" }}
+                >
+                  Change
+                </button>
+              </div>
+              <button
+                onClick={handleSongRemove}
+                className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ color: "#525252" }}
+                aria-label="Remove song"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          ) : (
+            // Empty state — tap to open picker
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl transition-colors"
+              style={{
+                backgroundColor: "#171717",
+                border: "1px dashed #262626",
+                color: "#A3A3A3",
+              }}
+            >
+              <Music size={16} />
+              <span className="text-[14px] font-semibold">
+                Choose a song
+              </span>
+            </button>
+          )}
+
           <p
             className="text-[11px] mt-1.5"
-            style={{
-              color: !songUrlIsValid ? "#FF0033" : "#525252",
-            }}
+            style={{ color: "#525252" }}
           >
-            {!songUrlIsValid
-              ? "Not a valid YouTube link"
-              : "A YouTube link to one song that says something about you."}
+            One song that says something about you.
           </p>
         </div>
       </div>
@@ -600,6 +656,13 @@ export default function Profile() {
           Log out
         </button>
       </div>
+
+      {/* ================ SONG PICKER SHEET ================ */}
+      <SongPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={handleSongSelect}
+      />
     </main>
   );
 }
