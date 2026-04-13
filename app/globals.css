@@ -3,6 +3,7 @@
 :root {
   --background: #0A0A0A;
   --foreground: #FAFAFA;
+  --accent: #FF0033;
 }
 
 @theme inline {
@@ -12,30 +13,103 @@
   --font-mono: var(--font-geist-mono);
 }
 
-/* Lock to dark mode — Otoki is dark-only by design */
-html,
-body {
-  background: #0A0A0A;
-  color: #FAFAFA;
-  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+/* ===========================================================================
+   Otoki global styles
+   Dark-only by design. Locked viewport. iOS WebKit polish.
+   =========================================================================== */
+
+html {
+  height: 100%;
+  height: 100dvh;
+
+  /* Smooth scroll for anchor links / programmatic scroll */
+  scroll-behavior: smooth;
 
   /* Prevent iOS rubber-band overscroll which causes the screen-shake bug
      when combined with sticky elements and Safari's collapsing URL bar */
   overscroll-behavior: none;
 
-  /* Prevent horizontal scroll that can occur from any element accidentally
-     extending past the viewport (date inputs, long titles, etc.) */
-  overflow-x: hidden;
-}
-
-/* Use dynamic viewport height where available to avoid layout shifts
-   when the iOS Safari URL bar collapses/expands during scroll */
-html {
-  height: 100%;
-  height: 100dvh;
+  /* Lock background across the whole document — prevents white flash
+     when overscroll briefly exposes the html element behind body */
+  background: #0A0A0A;
 }
 
 body {
+  background: #0A0A0A;
+  color: #FAFAFA;
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+
   min-height: 100%;
   min-height: 100dvh;
+
+  overscroll-behavior: none;
+  overflow-x: hidden;
+
+  /* Better text rendering on macOS / iOS */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Disable iOS's translucent gray tap highlight on links/buttons —
+     we provide our own visual feedback via :active and color states */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Ensure the main app container also blocks bounce —
+   defensive layer in case overscroll-behavior on body isn't enough */
+main {
+  overscroll-behavior-y: contain;
+}
+
+/* ===========================================================================
+   Selection color — match the Otoki red accent
+   =========================================================================== */
+::selection {
+  background: rgba(255, 0, 51, 0.3);
+  color: #FAFAFA;
+}
+
+::-moz-selection {
+  background: rgba(255, 0, 51, 0.3);
+  color: #FAFAFA;
+}
+
+/* ===========================================================================
+   Form element base styles — kill default browser styling that fights
+   our design system
+   =========================================================================== */
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS Safari adds inner padding/styling to buttons that we don't want */
+button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Date inputs on iOS Safari render their own native picker.
+   Strip the default iOS styling so our wrapper styling shows through. */
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.4);
+  cursor: pointer;
+}
+
+/* ===========================================================================
+   Safe area helper class — apply to fixed-bottom elements that need to
+   respect the iOS home indicator padding
+   =========================================================================== */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top);
 }
