@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useParams } from "next/navigation";
 import { ArrowLeft, MessageCircle } from "lucide-react";
+import FavouriteSong from "../../components/FavouriteSong";
 
 // Helper: format a gig date for the stacked date block on cards
 const formatGigDate = (dateStr: string | null | undefined) => {
@@ -201,8 +202,8 @@ export default function PublicProfile() {
         )}
       </div>
 
-      {/* ================ SONG OF THE MOMENT (placeholder, Step 7) ================ */}
-      {/* This section intentionally left empty for Step 7 — the favorite song embed */}
+      {/* ================ FAVOURITE SONG (Step 7) ================ */}
+      <FavouriteSong url={profile.favourite_song_url} />
 
       {/* ================ GOING TO SECTION ================ */}
       <div className="px-6 pb-10">

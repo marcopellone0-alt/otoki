@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import { Camera, LogOut, Check } from "lucide-react";
+import { isValidYouTubeUrl } from "../lib/youtube";
 
 const GENRES = [
   "Rock", "Indie", "Pop", "Electronic", "Hip Hop", "R&B", "Jazz",
@@ -38,6 +39,7 @@ export default function Profile() {
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [selectedVenues, setSelectedVenues] = useState<string[]>([]);
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [favouriteSongUrl, setFavouriteSongUrl] = useState("");
   const [uploading, setUploading] = useState(false);
 
   // Baseline snapshot of saved values — used to detect unsaved changes
@@ -47,6 +49,7 @@ export default function Profile() {
     selectedGenres: string[];
     selectedVenues: string[];
     avatarUrl: string;
+    favouriteSongUrl: string;
   } | null>(null);
 
   const [upcomingGigs, setUpcomingGigs] = useState<any[]>([]);
@@ -73,17 +76,20 @@ export default function Profile() {
         const genres = profile.favourite_genres || [];
         const venues = profile.favourite_venues || [];
         const avatar = profile.avatar_url || "";
+        const song = profile.favourite_song_url || "";
         setDisplayName(name);
         setBio(b);
         setSelectedGenres(genres);
         setSelectedVenues(venues);
         setAvatarUrl(avatar);
+        setFavouriteSongUrl(song);
         setBaseline({
           displayName: name,
           bio: b,
           selectedGenres: genres,
           selectedVenues: venues,
           avatarUrl: avatar,
+          favouriteSongUrl: song,
         });
       }
 
@@ -110,8 +116,13 @@ export default function Profile() {
         JSON.stringify(baseline.selectedGenres.slice().sort()) ||
       JSON.stringify(selectedVenues.slice().sort()) !==
         JSON.stringify(baseline.selectedVenues.slice().sort()) ||
-      avatarUrl.split("?")[0] !== baseline.avatarUrl
+      avatarUrl.split("?")[0] !== baseline.avatarUrl ||
+      favouriteSongUrl !== baseline.favouriteSongUrl
     : false;
+
+  // Validate the song URL — empty is fine (means "remove song")
+  const songUrlIsValid =
+    favouriteSongUrl.trim() === "" || isValidYouTubeUrl(favouriteSongUrl);
 
   // Auto-clear "saved" indicator after 2 seconds
   useEffect(() => {
@@ -154,9 +165,12 @@ export default function Profile() {
 
   const handleSave = async () => {
     if (!user) return;
+    if (!songUrlIsValid) return; // Block save on invalid URL
     setSaving(true);
 
     const cleanAvatarUrl = avatarUrl.split("?")[0]; // strip cache-bust param
+    const cleanSongUrl = favouriteSongUrl.trim() || null;
+
     const { error } = await supabase
       .from("profiles")
       .upsert({
@@ -166,6 +180,7 @@ export default function Profile() {
         favourite_genres: selectedGenres,
         favourite_venues: selectedVenues,
         avatar_url: cleanAvatarUrl,
+        favourite_song_url: cleanSongUrl,
       });
 
     if (!error) {
@@ -177,6 +192,7 @@ export default function Profile() {
         selectedGenres: [...selectedGenres],
         selectedVenues: [...selectedVenues],
         avatarUrl: cleanAvatarUrl,
+        favouriteSongUrl: cleanSongUrl || "",
       });
     }
     setSaving(false);
@@ -223,18 +239,20 @@ export default function Profile() {
 
         <button
           onClick={handleSave}
-          disabled={saving || (!hasUnsavedChanges && !savedAt)}
+          disabled={saving || !songUrlIsValid || (!hasUnsavedChanges && !savedAt)}
           className="font-extrabold text-[13px] uppercase tracking-[0.1em] transition-colors flex items-center gap-1.5"
           style={{
             color: savedAt
               ? "#A3A3A3"
               : saving
               ? "#525252"
+              : !songUrlIsValid
+              ? "#525252"
               : hasUnsavedChanges
               ? "#FF0033"
               : "#525252",
             cursor:
-              saving || (!hasUnsavedChanges && !savedAt)
+              saving || !songUrlIsValid || (!hasUnsavedChanges && !savedAt)
                 ? "default"
                 : "pointer",
           }}
@@ -365,6 +383,44 @@ export default function Profile() {
             style={{ color: "#525252" }}
           >
             {bio.length}/200
+          </p>
+        </div>
+
+        {/* Favourite song */}
+        <div className="mt-6">
+          <label
+            className="text-[11px] font-semibold uppercase tracking-[0.1em] block mb-2"
+            style={{ color: "#525252" }}
+          >
+            Favourite song
+          </label>
+          <input
+            type="url"
+            value={favouriteSongUrl}
+            onChange={(e) => setFavouriteSongUrl(e.target.value)}
+            placeholder="https://youtube.com/watch?v=..."
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            className="w-full text-[14px] rounded-xl px-4 py-3 focus:outline-none"
+            style={{
+              backgroundColor: "#171717",
+              border: songUrlIsValid
+                ? "1px solid #262626"
+                : "1px solid #FF0033",
+              color: "#FAFAFA",
+            }}
+          />
+          <p
+            className="text-[11px] mt-1.5"
+            style={{
+              color: !songUrlIsValid ? "#FF0033" : "#525252",
+            }}
+          >
+            {!songUrlIsValid
+              ? "Not a valid YouTube link"
+              : "A YouTube link to one song that says something about you."}
           </p>
         </div>
       </div>
