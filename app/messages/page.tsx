@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
+import { ArrowLeft, Send } from "lucide-react";
 
 export default function Messages() {
   const [user, setUser] = useState<any>(null);
@@ -17,6 +18,25 @@ export default function Messages() {
   // Keep a ref to activeChat so the realtime callback sees the current value
   useEffect(() => {
     activeChatRef.current = activeChat;
+  }, [activeChat]);
+
+  // Dispatch a custom event when entering/leaving chat mode so the global
+  // TabBar (in layout.tsx) can hide itself
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("otoki:chat-active", {
+        detail: { active: !!activeChat },
+      })
+    );
+    // Also dispatch "inactive" when this component unmounts (e.g. user
+    // navigates away from /messages while in a chat)
+    return () => {
+      window.dispatchEvent(
+        new CustomEvent("otoki:chat-active", {
+          detail: { active: false },
+        })
+      );
+    };
   }, [activeChat]);
 
   useEffect(() => {
@@ -51,17 +71,18 @@ export default function Messages() {
           const newMsg = payload.new as any;
           const currentChat = activeChatRef.current;
 
-          // If we're in the chat with this sender, append and mark as read
           if (currentChat && currentChat.partner_id === newMsg.sender_id) {
-            setMessages(prev => [...prev, newMsg]);
+            setMessages((prev) => [...prev, newMsg]);
             await supabase
               .from("messages")
               .update({ read_at: new Date().toISOString() })
               .eq("id", newMsg.id);
-            setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+            setTimeout(
+              () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
+              50
+            );
           }
 
-          // Always reload conversations list to update previews and unread counts
           loadConversations(user.id);
         }
       )
@@ -83,7 +104,6 @@ export default function Messages() {
   }, [user]);
 
   const loadConversations = async (userId: string) => {
-    // Get all messages involving this user
     const { data: allMessages } = await supabase
       .from("messages")
       .select("id, sender_id, receiver_id, content, created_at, read_at")
@@ -95,36 +115,37 @@ export default function Messages() {
       return;
     }
 
-    // Group by conversation partner
     const partners = new Map<string, any>();
     for (const msg of allMessages) {
       const partnerId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id;
       if (!partners.has(partnerId)) {
         partners.set(partnerId, {
           partner_id: partnerId,
-          last_message: msg.sender_id === userId ? "You: " + msg.content : msg.content,
+          last_message:
+            msg.sender_id === userId ? "You: " + msg.content : msg.content,
           last_time: msg.created_at,
           unread_count: 0,
         });
       }
-      // Count unread messages (sent to me, not yet read)
       if (msg.receiver_id === userId && !msg.read_at) {
         const convo = partners.get(partnerId);
         convo.unread_count += 1;
       }
     }
 
-    // Fetch partner profiles
     const partnerIds = Array.from(partners.keys());
     const { data: profiles } = await supabase
       .from("profiles")
       .select("id, display_name, avatar_url")
       .in("id", partnerIds);
 
-    const convos = Array.from(partners.values()).map(c => ({
+    const convos = Array.from(partners.values()).map((c) => ({
       ...c,
-      display_name: profiles?.find(p => p.id === c.partner_id)?.display_name || "Anonymous",
-      avatar_url: profiles?.find(p => p.id === c.partner_id)?.avatar_url || null,
+      display_name:
+        profiles?.find((p) => p.id === c.partner_id)?.display_name ||
+        "Anonymous",
+      avatar_url:
+        profiles?.find((p) => p.id === c.partner_id)?.avatar_url || null,
     }));
 
     setConversations(convos);
@@ -133,7 +154,6 @@ export default function Messages() {
   const openChat = async (partnerId: string) => {
     if (!user) return;
 
-    // Get partner profile
     const { data: profile } = await supabase
       .from("profiles")
       .select("id, display_name, avatar_url")
@@ -146,7 +166,6 @@ export default function Messages() {
       avatar_url: profile?.avatar_url || null,
     });
 
-    // Load messages between these two users
     const { data } = await supabase
       .from("messages")
       .select("*")
@@ -157,7 +176,6 @@ export default function Messages() {
 
     setMessages(data || []);
 
-    // Mark unread messages as read
     await supabase
       .from("messages")
       .update({ read_at: new Date().toISOString() })
@@ -165,10 +183,12 @@ export default function Messages() {
       .eq("receiver_id", user.id)
       .is("read_at", null);
 
-    // Refresh conversations to clear unread count
     loadConversations(user.id);
 
-    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    setTimeout(
+      () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
+      100
+    );
   };
 
   const sendMessage = async () => {
@@ -181,121 +201,377 @@ export default function Messages() {
       content: newMessage.trim(),
     };
 
-    const { data, error } = await supabase.from("messages").insert(msg).select().single();
+    const { data, error } = await supabase
+      .from("messages")
+      .insert(msg)
+      .select()
+      .single();
 
     if (!error && data) {
-      setMessages(prev => [...prev, data]);
+      setMessages((prev) => [...prev, data]);
       setNewMessage("");
-      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+      setTimeout(
+        () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
+        50
+      );
     }
     setSending(false);
   };
 
+  // Group messages by date for the chat view
+  const groupMessagesByDay = (msgs: any[]) => {
+    const groups: { dateLabel: string; messages: any[] }[] = [];
+    let currentLabel = "";
+
+    for (const msg of msgs) {
+      const date = new Date(msg.created_at);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      const msgDay = new Date(date);
+      msgDay.setHours(0, 0, 0, 0);
+
+      let label: string;
+      if (msgDay.getTime() === today.getTime()) {
+        label = "TODAY";
+      } else if (msgDay.getTime() === yesterday.getTime()) {
+        label = "YESTERDAY";
+      } else {
+        label = date
+          .toLocaleDateString("en-AU", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })
+          .toUpperCase();
+      }
+
+      if (label !== currentLabel) {
+        groups.push({ dateLabel: label, messages: [msg] });
+        currentLabel = label;
+      } else {
+        groups[groups.length - 1].messages.push(msg);
+      }
+    }
+
+    return groups;
+  };
+
+  // Format conversation list timestamp (Today/Yesterday/Apr 8 etc)
+  const formatConvoTime = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const msgDay = new Date(date);
+    msgDay.setHours(0, 0, 0, 0);
+
+    if (msgDay.getTime() === today.getTime()) {
+      return date.toLocaleTimeString("en-AU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } else if (msgDay.getTime() === yesterday.getTime()) {
+      return "Yesterday";
+    } else {
+      return date.toLocaleDateString("en-AU", {
+        day: "numeric",
+        month: "short",
+      });
+    }
+  };
+
   if (loading) {
     return (
-      <main className="min-h-screen bg-neutral-950 text-white flex items-center justify-center">
-        <p className="text-neutral-500">Loading...</p>
+      <main
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: "#0A0A0A" }}
+      >
+        <p style={{ color: "#525252" }}>Loading...</p>
       </main>
     );
   }
 
-  // Chat view
-  if (activeChat) {
-    return (
-      <main className="min-h-screen bg-neutral-950 text-white flex flex-col">
-        {/* Header */}
-        <div className="border-b border-neutral-800 p-4 flex items-center gap-3">
-          <button
-            onClick={() => { setActiveChat(null); if (user) loadConversations(user.id); }}
-            className="text-neutral-500 hover:text-white transition-colors"
-          >
-            ←
-          </button>
-          {activeChat.avatar_url ? (
-            <img src={activeChat.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-sm font-bold text-neutral-400">
-              {activeChat.display_name ? activeChat.display_name[0].toUpperCase() : "?"}
-            </div>
-          )}
-          <a href={`/profile/${activeChat.partner_id}`} className="font-bold hover:text-red-400 transition-colors">
-            {activeChat.display_name}
-          </a>
-        </div>
+  // ==========================================================================
+  // CHAT VIEW (active conversation)
+  // ==========================================================================
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {messages.length === 0 && (
-            <p className="text-neutral-500 text-center py-8">
-              Say hi! You're both going to the same gig.
-            </p>
-          )}
-          {messages.map((msg: any) => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}
+  if (activeChat) {
+    const groupedMessages = groupMessagesByDay(messages);
+
+    return (
+      <main
+        className="flex flex-col fixed inset-0"
+        style={{ backgroundColor: "#0A0A0A" }}
+      >
+          {/* ================ CHAT HEADER ================ */}
+          <div
+            className="flex items-center gap-3 px-4"
+            style={{
+              backgroundColor: "#0A0A0A",
+              borderBottom: "1px solid #171717",
+              height: "56px",
+              flexShrink: 0,
+            }}
+          >
+            <button
+              onClick={() => {
+                setActiveChat(null);
+                if (user) loadConversations(user.id);
+                // Clear the ?to= param from the URL
+                window.history.replaceState({}, "", "/messages");
+              }}
+              className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+              style={{ color: "#A3A3A3" }}
             >
+              <ArrowLeft size={20} />
+            </button>
+
+            {activeChat.avatar_url ? (
+              <img
+                src={activeChat.avatar_url}
+                alt=""
+                className="w-9 h-9 rounded-full object-cover"
+              />
+            ) : (
               <div
-                className={`max-w-[75%] px-4 py-2 rounded-2xl ${
-                  msg.sender_id === user?.id
-                    ? "bg-[#FF0000] text-white rounded-br-md"
-                    : "bg-neutral-800 text-white rounded-bl-md"
-                }`}
+                className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-[14px]"
+                style={{ backgroundColor: "#262626", color: "#A3A3A3" }}
               >
-                <p className="text-sm">{msg.content}</p>
-                <p className="text-[10px] opacity-50 mt-1">
-                  {new Date(msg.created_at).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })}
+                {activeChat.display_name
+                  ? activeChat.display_name[0].toUpperCase()
+                  : "?"}
+              </div>
+            )}
+
+            <a
+              href={`/profile/${activeChat.partner_id}`}
+              className="font-extrabold text-[16px] tracking-[-0.01em] flex-1 min-w-0 truncate transition-colors"
+              style={{ color: "#FAFAFA" }}
+            >
+              {activeChat.display_name}
+            </a>
+          </div>
+
+          {/* ================ MESSAGES SCROLL AREA ================ */}
+          <div
+            className="flex-1 overflow-y-auto px-4 py-4"
+            style={{ overscrollBehavior: "contain" }}
+          >
+            {messages.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center px-6 text-center">
+                <div
+                  className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
+                  style={{ backgroundColor: "#171717" }}
+                >
+                  <Send size={24} color="#525252" />
+                </div>
+                <p
+                  className="font-extrabold text-[18px] mb-2"
+                  style={{ color: "#FAFAFA" }}
+                >
+                  Say hi
+                </p>
+                <p className="text-[14px]" style={{ color: "#A3A3A3" }}>
+                  Break the ice with{" "}
+                  {activeChat.display_name.split(" ")[0] || "them"}.
                 </p>
               </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
+            ) : (
+              <div className="space-y-6">
+                {groupedMessages.map((group, gi) => (
+                  <div key={gi} className="space-y-2">
+                    {/* Day separator */}
+                    <div className="flex items-center justify-center my-2">
+                      <p
+                        className="text-[10px] font-semibold uppercase tracking-[0.15em]"
+                        style={{ color: "#525252" }}
+                      >
+                        {group.dateLabel}
+                      </p>
+                    </div>
 
-        {/* Input */}
-        <div className="border-t border-neutral-800 p-4 flex gap-2">
-          <input
-            type="text"
-            value={newMessage}
-            onChange={e => setNewMessage(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-            placeholder="Type a message..."
-            className="flex-1 bg-neutral-900 border border-neutral-800 text-white rounded-full px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#FF0000] placeholder:text-neutral-600"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={!newMessage.trim() || sending}
-            className={`px-5 py-3 rounded-full font-bold text-sm transition-colors ${
-              !newMessage.trim() || sending
-                ? "bg-neutral-800 text-neutral-500"
-                : "bg-[#FF0000] hover:bg-[#CC0000] text-white"
-            }`}
+                    {/* Messages in this day */}
+                    {group.messages.map((msg: any, mi: number) => {
+                      const isMine = msg.sender_id === user?.id;
+                      const prevMsg = mi > 0 ? group.messages[mi - 1] : null;
+                      const nextMsg =
+                        mi < group.messages.length - 1
+                          ? group.messages[mi + 1]
+                          : null;
+                      const isFirstInGroup =
+                        !prevMsg || prevMsg.sender_id !== msg.sender_id;
+                      const isLastInGroup =
+                        !nextMsg || nextMsg.sender_id !== msg.sender_id;
+
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex ${isMine ? "justify-end" : "justify-start"}`}
+                          style={{ marginTop: isFirstInGroup ? "8px" : "2px" }}
+                        >
+                          <div
+                            className="max-w-[78%] px-4 py-2.5"
+                            style={{
+                              backgroundColor: isMine ? "#FF0033" : "#171717",
+                              color: "#FFFFFF",
+                              borderRadius: "20px",
+                              borderTopLeftRadius:
+                                !isMine && !isFirstInGroup ? "6px" : "20px",
+                              borderBottomLeftRadius:
+                                !isMine && !isLastInGroup ? "6px" : "20px",
+                              borderTopRightRadius:
+                                isMine && !isFirstInGroup ? "6px" : "20px",
+                              borderBottomRightRadius:
+                                isMine && !isLastInGroup ? "6px" : "20px",
+                            }}
+                          >
+                            <p className="text-[15px] leading-[1.4] break-words">
+                              {msg.content}
+                            </p>
+                            {isLastInGroup && (
+                              <p
+                                className="text-[10px] mt-1"
+                                style={{
+                                  color: isMine
+                                    ? "rgba(255, 255, 255, 0.7)"
+                                    : "#525252",
+                                  textAlign: isMine ? "right" : "left",
+                                }}
+                              >
+                                {new Date(msg.created_at).toLocaleTimeString(
+                                  "en-AU",
+                                  { hour: "2-digit", minute: "2-digit" }
+                                )}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
+
+          {/* ================ INPUT BAR ================ */}
+          <div
+            className="flex items-end gap-2 px-3 py-3"
+            style={{
+              backgroundColor: "#0A0A0A",
+              borderTop: "1px solid #171717",
+              paddingBottom: "calc(12px + env(safe-area-inset-bottom))",
+              flexShrink: 0,
+            }}
           >
-            Send
-          </button>
-        </div>
-      </main>
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              placeholder="Message..."
+              className="flex-1 text-[15px] focus:outline-none"
+              style={{
+                backgroundColor: "#171717",
+                border: "1px solid #262626",
+                color: "#FAFAFA",
+                borderRadius: "20px",
+                padding: "10px 16px",
+                minWidth: 0,
+              }}
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!newMessage.trim() || sending}
+              className="shrink-0 flex items-center justify-center transition-colors"
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "20px",
+                backgroundColor: !newMessage.trim() || sending
+                  ? "#171717"
+                  : "#FF0033",
+                color: !newMessage.trim() || sending ? "#525252" : "#FFFFFF",
+                cursor:
+                  !newMessage.trim() || sending ? "not-allowed" : "pointer",
+              }}
+            >
+              <Send size={16} strokeWidth={2.5} />
+            </button>
+          </div>
+        </main>
     );
   }
 
-  // Conversations list
+  // ==========================================================================
+  // CONVERSATION LIST VIEW
+  // ==========================================================================
+
   return (
-    <main className="min-h-screen bg-neutral-950 text-white flex flex-col items-center p-6 pt-12">
-      <div className="max-w-md w-full space-y-6">
+    <main
+      className="min-h-screen text-white"
+      style={{ backgroundColor: "#0A0A0A" }}
+    >
+      {/* ================ HEADER ================ */}
+      <div className="px-6 pt-12 pb-8">
+        <p
+          className="text-[11px] font-semibold uppercase tracking-[0.15em] mb-3"
+          style={{ color: "#525252" }}
+        >
+          Inbox
+        </p>
+        <h1
+          className="font-black tracking-[-0.02em] leading-[1.05]"
+          style={{ fontSize: "40px", color: "#FAFAFA" }}
+        >
+          MESSAGES
+        </h1>
+      </div>
 
-        <div className="space-y-2">
-          <a href="/" className="text-neutral-500 hover:text-white text-sm transition-colors">
-            ← Back to gigs
-          </a>
-          <h1 className="text-3xl font-black tracking-tighter">Messages</h1>
-        </div>
-
+      {/* ================ CONVERSATION LIST ================ */}
+      <div className="px-6">
         {conversations.length === 0 ? (
-          <div className="text-center py-12 space-y-2">
-            <p className="text-neutral-500">No messages yet.</p>
-            <p className="text-neutral-600 text-sm">
-              RSVP to a gig and tap on other attendees to start a chat!
+          <div
+            className="rounded-2xl p-8 text-center"
+            style={{
+              backgroundColor: "#171717",
+              border: "1px dashed #262626",
+            }}
+          >
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4"
+              style={{ backgroundColor: "#0A0A0A" }}
+            >
+              <Send size={20} color="#525252" />
+            </div>
+            <p
+              className="font-extrabold text-[16px] mb-2"
+              style={{ color: "#FAFAFA" }}
+            >
+              No messages yet
             </p>
+            <p className="text-[14px] mb-4" style={{ color: "#A3A3A3" }}>
+              RSVP to a gig and message other gig-goers from their profile.
+            </p>
+            <a
+              href="/"
+              className="inline-block text-[12px] font-semibold uppercase tracking-wider transition-colors"
+              style={{ color: "#FF0033" }}
+            >
+              Find gigs →
+            </a>
           </div>
         ) : (
           <div className="space-y-2">
@@ -303,40 +579,73 @@ export default function Messages() {
               <button
                 key={convo.partner_id}
                 onClick={() => openChat(convo.partner_id)}
-                className="w-full bg-neutral-900 border border-neutral-800 p-4 rounded-xl flex items-center gap-3 hover:bg-neutral-800 transition-colors text-left"
+                className="w-full flex items-center gap-3 p-3 rounded-2xl transition-colors text-left"
+                style={{
+                  backgroundColor: "#171717",
+                }}
               >
-                {convo.avatar_url ? (
-                  <img src={convo.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover shrink-0" />
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center text-lg font-bold text-neutral-400 shrink-0">
-                    {convo.display_name ? convo.display_name[0].toUpperCase() : "?"}
-                  </div>
-                )}
+                {/* Avatar with unread dot overlay */}
+                <div className="relative shrink-0">
+                  {convo.avatar_url ? (
+                    <img
+                      src={convo.avatar_url}
+                      alt=""
+                      className="w-12 h-12 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      className="w-12 h-12 rounded-full flex items-center justify-center text-[18px] font-bold"
+                      style={{ backgroundColor: "#262626", color: "#A3A3A3" }}
+                    >
+                      {convo.display_name
+                        ? convo.display_name[0].toUpperCase()
+                        : "?"}
+                    </div>
+                  )}
+                  {convo.unread_count > 0 && (
+                    <span
+                      className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full"
+                      style={{
+                        backgroundColor: "#FF0033",
+                        border: "2px solid #171717",
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* Conversation details */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <p className={`truncate ${convo.unread_count > 0 ? "font-bold" : "font-semibold"}`}>
+                    <p
+                      className="font-extrabold text-[15px] truncate tracking-[-0.01em]"
+                      style={{ color: "#FAFAFA" }}
+                    >
                       {convo.display_name}
                     </p>
-                    <p className="text-neutral-600 text-xs shrink-0">
-                      {new Date(convo.last_time).toLocaleDateString("en-AU")}
+                    <p
+                      className="text-[11px] shrink-0"
+                      style={{
+                        color: convo.unread_count > 0 ? "#FF0033" : "#525252",
+                        fontWeight: convo.unread_count > 0 ? 600 : 400,
+                      }}
+                    >
+                      {formatConvoTime(convo.last_time)}
                     </p>
                   </div>
-                  <div className="flex items-center justify-between gap-2 mt-0.5">
-                    <p className={`text-sm truncate ${convo.unread_count > 0 ? "text-white" : "text-neutral-500"}`}>
-                      {convo.last_message}
-                    </p>
-                    {convo.unread_count > 0 && (
-                      <span className="bg-[#FF0000] text-white text-xs font-bold px-2 py-0.5 rounded-full shrink-0 min-w-[20px] text-center">
-                        {convo.unread_count}
-                      </span>
-                    )}
-                  </div>
+                  <p
+                    className="text-[14px] truncate mt-0.5"
+                    style={{
+                      color: convo.unread_count > 0 ? "#FAFAFA" : "#A3A3A3",
+                      fontWeight: convo.unread_count > 0 ? 500 : 400,
+                    }}
+                  >
+                    {convo.last_message}
+                  </p>
                 </div>
               </button>
             ))}
           </div>
         )}
-
       </div>
     </main>
   );

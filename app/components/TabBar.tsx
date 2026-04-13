@@ -11,18 +11,38 @@ import { supabase } from "../../lib/supabase";
  * Visibility rules:
  * - Hidden on /auth (logged-out users)
  * - Hidden on /privacy (standalone doc page)
- * - Hidden by parent when an active chat is open in /messages (via `hide` prop)
+ * - Hidden when an active chat view is open (auto-detected via custom window
+ *   event 'otoki:chat-active' which the messages page dispatches)
  *
  * Active state is based on the current pathname.
  * A red dot appears on the Messages tab when there are unread messages.
  */
-export default function TabBar({ hide = false }: { hide?: boolean }) {
+export default function TabBar() {
   const pathname = usePathname();
   const [hasUnread, setHasUnread] = useState(false);
+  const [chatActive, setChatActive] = useState(false);
 
-  // Hide on auth, privacy, and when parent explicitly hides (e.g. open chat view)
+  // Listen for chat-active state from messages page
+  useEffect(() => {
+    const handleChatActive = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setChatActive(!!detail?.active);
+    };
+    window.addEventListener("otoki:chat-active", handleChatActive);
+    return () =>
+      window.removeEventListener("otoki:chat-active", handleChatActive);
+  }, []);
+
+  // When navigating away from messages entirely, reset chat state
+  useEffect(() => {
+    if (!pathname.startsWith("/messages")) {
+      setChatActive(false);
+    }
+  }, [pathname]);
+
+  // Hide on auth, privacy, and when in active chat view
   const hiddenOnRoute = pathname === "/auth" || pathname === "/privacy";
-  if (hiddenOnRoute || hide) return null;
+  if (hiddenOnRoute || chatActive) return null;
 
   useEffect(() => {
     let mounted = true;
