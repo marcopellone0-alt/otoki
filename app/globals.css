@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0A0A0A;
+  --foreground: #FAFAFA;
 }
 
 @theme inline {
@@ -12,15 +12,30 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Lock to dark mode — Otoki is dark-only by design */
+html,
+body {
+  background: #0A0A0A;
+  color: #FAFAFA;
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+
+  /* Prevent iOS rubber-band overscroll which causes the screen-shake bug
+     when combined with sticky elements and Safari's collapsing URL bar */
+  overscroll-behavior: none;
+
+  /* Prevent horizontal scroll that can occur from any element accidentally
+     extending past the viewport (date inputs, long titles, etc.) */
+  overflow-x: hidden;
+}
+
+/* Use dynamic viewport height where available to avoid layout shifts
+   when the iOS Safari URL bar collapses/expands during scroll */
+html {
+  height: 100%;
+  height: 100dvh;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100%;
+  min-height: 100dvh;
 }
