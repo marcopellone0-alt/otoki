@@ -22,7 +22,7 @@ export default function TabBar() {
   const [hasUnread, setHasUnread] = useState(false);
   const [chatActive, setChatActive] = useState(false);
 
-  // Listen for chat-active state from messages page
+  // Hook 1: Listen for chat-active state from messages page
   useEffect(() => {
     const handleChatActive = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -33,17 +33,14 @@ export default function TabBar() {
       window.removeEventListener("otoki:chat-active", handleChatActive);
   }, []);
 
-  // When navigating away from messages entirely, reset chat state
+  // Hook 2: When navigating away from messages entirely, reset chat state
   useEffect(() => {
     if (!pathname.startsWith("/messages")) {
       setChatActive(false);
     }
   }, [pathname]);
 
-  // Hide on auth, privacy, and when in active chat view
-  const hiddenOnRoute = pathname === "/auth" || pathname === "/privacy";
-  if (hiddenOnRoute || chatActive) return null;
-
+  // Hook 3: Unread messages subscription
   useEffect(() => {
     let mounted = true;
     let channel: any = null;
@@ -86,6 +83,10 @@ export default function TabBar() {
     };
   }, []);
 
+  // ALL HOOKS ABOVE THIS LINE. Early returns only after hooks.
+  const hiddenOnRoute = pathname === "/auth" || pathname === "/privacy";
+  if (hiddenOnRoute || chatActive) return null;
+
   const tabs = [
     { href: "/", label: "Gigs", icon: Home, match: (p: string) => p === "/" },
     {
@@ -126,10 +127,7 @@ export default function TabBar() {
               }}
             >
               <div className="relative">
-                <Icon
-                  size={22}
-                  strokeWidth={active ? 2.5 : 2}
-                />
+                <Icon size={22} strokeWidth={active ? 2.5 : 2} />
                 {tab.showDot && (
                   <span
                     className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full"
