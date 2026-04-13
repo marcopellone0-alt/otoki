@@ -306,8 +306,13 @@ export default function Messages() {
 
     return (
       <main
-        className="flex flex-col fixed inset-0"
-        style={{ backgroundColor: "#0A0A0A" }}
+        className="flex flex-col"
+        style={{
+          backgroundColor: "#0A0A0A",
+          height: "100dvh",
+          // Negate the layout's pb-20 (80px) so chat takes full viewport
+          marginBottom: "-80px",
+        }}
       >
           {/* ================ CHAT HEADER ================ */}
           <div
