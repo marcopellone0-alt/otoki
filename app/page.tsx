@@ -49,6 +49,31 @@ const groupGigsByDay = (gigs: any[]) => {
   return Array.from(byKey.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 };
 
+// Convert a Supabase curated_gig row into the same shape Ticketmaster uses,
+// so the rest of the app can treat them identically.
+const curatedGigToTicketmasterShape = (curated: any) => ({
+  id: `curated-${curated.id}`,
+  name: curated.name,
+  url: curated.ticket_url || null,
+  dates: {
+    start: { localDate: curated.gig_date },
+  },
+  _embedded: {
+    venues: [
+      {
+        name: curated.venue_name,
+        address: curated.venue_address ? { line1: curated.venue_address } : null,
+      },
+    ],
+    // No attractions for curated gigs — mixtape route handles missing attractions
+    // by falling back to title parsing
+    attractions: [],
+  },
+  images: curated.image_url
+    ? [{ url: curated.image_url, ratio: "16_9" }]
+    : [],
+});
+
 // ============================================================================
 // Main Component
 // ============================================================================
@@ -150,12 +175,29 @@ export default function Home() {
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
-      const response = await fetch(`/api/gigs?from=${fromDate}&to=${toDate}`);
-      const data = await response.json();
-      const liveEvents = data._embedded?.events || [];
+      // Fetch Ticketmaster gigs and curated gigs in parallel
+      const [tmResponse, curatedResponse] = await Promise.all([
+        fetch(`/api/gigs?from=${fromDate}&to=${toDate}`),
+        supabase
+          .from("curated_gigs")
+          .select("*")
+          .gte("gig_date", fromDate)
+          .lte("gig_date", toDate),
+      ]);
+
+      const tmData = await tmResponse.json();
+      const liveEvents = tmData._embedded?.events || [];
+      const curatedRaw = curatedResponse.data || [];
+
+      // Reshape curated gigs to match Ticketmaster's structure
+      const curatedReshaped = curatedRaw.map(curatedGigToTicketmasterShape);
+
+      // Combine and dedupe by name (curated takes precedence if duplicate)
+      const allGigs = [...curatedReshaped, ...liveEvents];
       const uniqueGigs = Array.from(
-        new Map(liveEvents.map((gig: any) => [gig.name, gig])).values()
+        new Map(allGigs.map((gig: any) => [gig.name.toLowerCase(), gig])).values()
       );
+
       setGigs(uniqueGigs);
       setShowDashboard(true);
       loadRsvps(uniqueGigs);
@@ -478,15 +520,17 @@ export default function Home() {
 
                           <div className="flex-1" />
 
-                          <a
-                            href={gig.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-bold text-[12px] uppercase tracking-wider px-4 py-2 rounded-full transition-colors"
-                            style={{ backgroundColor: "#FAFAFA", color: "#0A0A0A" }}
-                          >
-                            Tickets
-                          </a>
+                          {gig.url && (
+                            <a
+                              href={gig.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-bold text-[12px] uppercase tracking-wider px-4 py-2 rounded-full transition-colors"
+                              style={{ backgroundColor: "#FAFAFA", color: "#0A0A0A" }}
+                            >
+                              Tickets
+                            </a>
+                          )}
                         </div>
                       </article>
                     );
