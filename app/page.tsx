@@ -24,6 +24,15 @@ const formatGigDate = (dateStr: string | null | undefined) => {
   };
 };
 
+// Check if a curated gig was added in the last 7 days
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const isRecentlyAdded = (createdAt: string | null | undefined): boolean => {
+  if (!createdAt) return false;
+  const added = new Date(createdAt).getTime();
+  const now = Date.now();
+  return now - added < SEVEN_DAYS_MS;
+};
+
 const groupGigsByDay = (gigs: any[]) => {
   const groups: { label: string; sortKey: string; gigs: any[] }[] = [];
   const byKey = new Map<string, { label: string; sortKey: string; gigs: any[] }>();
@@ -50,7 +59,8 @@ const groupGigsByDay = (gigs: any[]) => {
 };
 
 // Convert a Supabase curated_gig row into the same shape Ticketmaster uses,
-// so the rest of the app can treat them identically.
+// so the rest of the app can treat them identically. Preserves created_at
+// so we can badge recent additions as NEW.
 const curatedGigToTicketmasterShape = (curated: any) => ({
   id: `curated-${curated.id}`,
   name: curated.name,
@@ -70,6 +80,8 @@ const curatedGigToTicketmasterShape = (curated: any) => ({
   images: curated.image_url
     ? [{ url: curated.image_url, ratio: "16_9" }]
     : [],
+  // Pass through the creation timestamp for NEW badge logic
+  _curated_created_at: curated.created_at,
 });
 
 // ============================================================================
@@ -433,6 +445,10 @@ export default function Home() {
                     const dateInfo = formatGigDate(gig.dates?.start?.localDate);
                     const isGoing = rsvps.has(gig.id);
                     const count = rsvpCounts[gig.id] || 0;
+                    // NEW badge fires for curated gigs added in the last 7 days.
+                    // Ticketmaster gigs don't have a reliable "added to system"
+                    // timestamp, so they never show the badge.
+                    const isNew = isRecentlyAdded(gig._curated_created_at);
 
                     return (
                       <article
@@ -475,12 +491,27 @@ export default function Home() {
 
                           {/* Gig details */}
                           <div className="flex-1 min-w-0">
-                            <h3
-                              className="font-extrabold tracking-[-0.01em] leading-[1.2]"
-                              style={{ fontSize: "18px", color: "#FAFAFA" }}
-                            >
-                              {gig.name}
-                            </h3>
+                            {/* Title + NEW badge inline */}
+                            <div className="flex items-start gap-2">
+                              <h3
+                                className="font-extrabold tracking-[-0.01em] leading-[1.2] flex-1"
+                                style={{ fontSize: "18px", color: "#FAFAFA" }}
+                              >
+                                {gig.name}
+                              </h3>
+                              {isNew && (
+                                <span
+                                  className="shrink-0 text-[9px] font-bold uppercase tracking-[0.1em] px-2 py-0.5 rounded-full mt-1"
+                                  style={{
+                                    backgroundColor: "#FF0033",
+                                    color: "#FFFFFF",
+                                    letterSpacing: "0.1em",
+                                  }}
+                                >
+                                  New
+                                </span>
+                              )}
+                            </div>
                             <p className="text-[13px] mt-1" style={{ color: "#A3A3A3" }}>
                               {gig._embedded?.venues?.[0]?.name || "Venue TBA"}
                             </p>
