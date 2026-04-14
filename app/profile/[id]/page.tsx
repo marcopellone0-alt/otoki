@@ -5,6 +5,7 @@ import { supabase } from "../../../lib/supabase";
 import { useParams } from "next/navigation";
 import { ArrowLeft, MessageCircle } from "lucide-react";
 import FavouriteSong from "../../components/FavouriteSong";
+import { extractYouTubeId, getYouTubeThumbnail } from "../../lib/youtube";
 
 // Helper: format a gig date for the stacked date block on cards
 const formatGigDate = (dateStr: string | null | undefined) => {
@@ -112,17 +113,58 @@ export default function PublicProfile() {
   const isOwnProfile = currentUser && currentUser.id === userId;
   const matchCount = Array.from(myRsvps).length;
 
+  // Determine background image source — prefer iTunes album art, fall back to YouTube thumbnail
+  const songVideoId = profile.favourite_song_url
+    ? extractYouTubeId(profile.favourite_song_url)
+    : null;
+  const backgroundImage =
+    profile.favourite_song_artwork_url ||
+    (songVideoId ? getYouTubeThumbnail(songVideoId) : null);
+
   return (
     <main
-      className="min-h-screen text-white"
+      className="min-h-screen text-white relative"
       style={{ backgroundColor: "#0A0A0A" }}
     >
+      {/* ================ BLURRED ALBUM ART BACKGROUND ================ */}
+      {/* Fixed positioning so it stays in place as the user scrolls. */}
+      {/* Heavy blur + dark overlay keeps text legible regardless of image. */}
+      {backgroundImage && (
+        <div
+          className="fixed inset-0 z-0 pointer-events-none"
+          aria-hidden="true"
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundImage: `url(${backgroundImage})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              filter: "blur(60px)",
+              transform: "scale(1.2)", // prevents blur edges showing
+              opacity: 0.5,
+            }}
+          />
+          {/* Dark overlay for legibility */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundColor: "rgba(10, 10, 10, 0.65)",
+            }}
+          />
+        </div>
+      )}
+
+      {/* ================ FOREGROUND CONTENT ================ */}
+      <div className="relative z-10">
       {/* ================ HEADER ================ */}
       <div className="px-6 pt-6 pb-8">
         <a
           href="/"
           className="inline-flex items-center gap-2 text-[13px] font-medium mb-8 transition-colors"
-          style={{ color: "#525252" }}
+          style={{ color: "#A3A3A3" }}
         >
           <ArrowLeft size={16} />
           Back to gigs
@@ -179,7 +221,7 @@ export default function PublicProfile() {
         {profile.bio && (
           <p
             className="text-[15px] leading-[1.5] mb-6"
-            style={{ color: "#A3A3A3" }}
+            style={{ color: "#FAFAFA" }}
           >
             {profile.bio}
           </p>
@@ -202,7 +244,7 @@ export default function PublicProfile() {
         )}
       </div>
 
-      {/* ================ FAVOURITE SONG (Step 7) ================ */}
+      {/* ================ FAVOURITE SONG ================ */}
       <FavouriteSong url={profile.favourite_song_url} />
 
       {/* ================ GOING TO SECTION ================ */}
@@ -217,7 +259,7 @@ export default function PublicProfile() {
         {upcomingGigs.length === 0 ? (
           <p
             className="text-[14px] py-6"
-            style={{ color: "#525252" }}
+            style={{ color: "#A3A3A3" }}
           >
             No upcoming gigs yet.
           </p>
@@ -232,7 +274,9 @@ export default function PublicProfile() {
                   key={gig.id}
                   className="relative overflow-hidden"
                   style={{
-                    backgroundColor: "#171717",
+                    backgroundColor: "rgba(23, 23, 23, 0.85)",
+                    backdropFilter: "blur(8px)",
+                    WebkitBackdropFilter: "blur(8px)",
                     borderRadius: "16px",
                     borderLeft: isMatch
                       ? "3px solid #FF0033"
@@ -314,13 +358,13 @@ export default function PublicProfile() {
         profile.favourite_venues?.length > 0) && (
         <div
           className="px-6 py-8 mt-2 space-y-6"
-          style={{ borderTop: "1px solid #171717" }}
+          style={{ borderTop: "1px solid rgba(23, 23, 23, 0.85)" }}
         >
           {profile.favourite_genres?.length > 0 && (
             <div>
               <p
                 className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-3"
-                style={{ color: "#525252" }}
+                style={{ color: "#A3A3A3" }}
               >
                 Into
               </p>
@@ -330,9 +374,11 @@ export default function PublicProfile() {
                     key={g}
                     className="text-[12px] font-semibold px-3 py-1.5 rounded-full"
                     style={{
-                      backgroundColor: "transparent",
+                      backgroundColor: "rgba(23, 23, 23, 0.85)",
+                      backdropFilter: "blur(8px)",
+                      WebkitBackdropFilter: "blur(8px)",
                       border: "1px solid #262626",
-                      color: "#A3A3A3",
+                      color: "#FAFAFA",
                     }}
                   >
                     {g}
@@ -346,7 +392,7 @@ export default function PublicProfile() {
             <div>
               <p
                 className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-3"
-                style={{ color: "#525252" }}
+                style={{ color: "#A3A3A3" }}
               >
                 Go-to venues
               </p>
@@ -356,9 +402,11 @@ export default function PublicProfile() {
                     key={v}
                     className="text-[12px] font-semibold px-3 py-1.5 rounded-full"
                     style={{
-                      backgroundColor: "transparent",
+                      backgroundColor: "rgba(23, 23, 23, 0.85)",
+                      backdropFilter: "blur(8px)",
+                      WebkitBackdropFilter: "blur(8px)",
                       border: "1px solid #262626",
-                      color: "#A3A3A3",
+                      color: "#FAFAFA",
                     }}
                   >
                     {v}
@@ -369,6 +417,7 @@ export default function PublicProfile() {
           )}
         </div>
       )}
+      </div>
     </main>
   );
 }

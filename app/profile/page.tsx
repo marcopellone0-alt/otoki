@@ -42,6 +42,7 @@ export default function Profile() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [favouriteSongUrl, setFavouriteSongUrl] = useState("");
   const [favouriteSongTitle, setFavouriteSongTitle] = useState<string | null>(null);
+  const [favouriteSongArtworkUrl, setFavouriteSongArtworkUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -53,6 +54,7 @@ export default function Profile() {
     selectedVenues: string[];
     avatarUrl: string;
     favouriteSongUrl: string;
+    favouriteSongArtworkUrl: string;
   } | null>(null);
 
   const [upcomingGigs, setUpcomingGigs] = useState<any[]>([]);
@@ -80,12 +82,14 @@ export default function Profile() {
         const venues = profile.favourite_venues || [];
         const avatar = profile.avatar_url || "";
         const song = profile.favourite_song_url || "";
+        const artwork = profile.favourite_song_artwork_url || "";
         setDisplayName(name);
         setBio(b);
         setSelectedGenres(genres);
         setSelectedVenues(venues);
         setAvatarUrl(avatar);
         setFavouriteSongUrl(song);
+        setFavouriteSongArtworkUrl(artwork || null);
         setBaseline({
           displayName: name,
           bio: b,
@@ -93,6 +97,7 @@ export default function Profile() {
           selectedVenues: venues,
           avatarUrl: avatar,
           favouriteSongUrl: song,
+          favouriteSongArtworkUrl: artwork,
         });
       }
 
@@ -120,7 +125,8 @@ export default function Profile() {
       JSON.stringify(selectedVenues.slice().sort()) !==
         JSON.stringify(baseline.selectedVenues.slice().sort()) ||
       avatarUrl.split("?")[0] !== baseline.avatarUrl ||
-      favouriteSongUrl !== baseline.favouriteSongUrl
+      favouriteSongUrl !== baseline.favouriteSongUrl ||
+      (favouriteSongArtworkUrl || "") !== baseline.favouriteSongArtworkUrl
     : false;
 
   // Auto-clear "saved" indicator after 2 seconds
@@ -162,16 +168,22 @@ export default function Profile() {
     setUploading(false);
   };
 
-  const handleSongSelect = (videoId: string, title: string) => {
+  const handleSongSelect = (
+    videoId: string,
+    title: string,
+    artworkUrl: string | null
+  ) => {
     // Store as a canonical youtube.com watch URL
     setFavouriteSongUrl(`https://www.youtube.com/watch?v=${videoId}`);
     setFavouriteSongTitle(title);
+    setFavouriteSongArtworkUrl(artworkUrl);
     setPickerOpen(false);
   };
 
   const handleSongRemove = () => {
     setFavouriteSongUrl("");
     setFavouriteSongTitle(null);
+    setFavouriteSongArtworkUrl(null);
   };
 
   const handleSave = async () => {
@@ -180,6 +192,7 @@ export default function Profile() {
 
     const cleanAvatarUrl = avatarUrl.split("?")[0]; // strip cache-bust param
     const cleanSongUrl = favouriteSongUrl.trim() || null;
+    const cleanArtworkUrl = cleanSongUrl ? favouriteSongArtworkUrl : null;
 
     const { error } = await supabase
       .from("profiles")
@@ -191,6 +204,7 @@ export default function Profile() {
         favourite_venues: selectedVenues,
         avatar_url: cleanAvatarUrl,
         favourite_song_url: cleanSongUrl,
+        favourite_song_artwork_url: cleanArtworkUrl,
       });
 
     if (!error) {
@@ -203,6 +217,7 @@ export default function Profile() {
         selectedVenues: [...selectedVenues],
         avatarUrl: cleanAvatarUrl,
         favouriteSongUrl: cleanSongUrl || "",
+        favouriteSongArtworkUrl: cleanArtworkUrl || "",
       });
     }
     setSaving(false);
@@ -227,10 +242,13 @@ export default function Profile() {
   }
 
   // Derive thumbnail for the current saved/picked song
+  // Prefer iTunes album art, fall back to YouTube thumbnail
   const songVideoId = favouriteSongUrl
     ? extractYouTubeId(favouriteSongUrl)
     : null;
-  const songThumbnail = songVideoId ? getYouTubeThumbnail(songVideoId) : null;
+  const songPreviewImage =
+    favouriteSongArtworkUrl ||
+    (songVideoId ? getYouTubeThumbnail(songVideoId) : null);
 
   return (
     <main
@@ -418,14 +436,14 @@ export default function Profile() {
                 border: "1px solid #262626",
               }}
             >
-              {songThumbnail && (
+              {songPreviewImage && (
                 <img
-                  src={songThumbnail}
+                  src={songPreviewImage}
                   alt=""
                   className="shrink-0 object-cover"
                   style={{
-                    width: "64px",
-                    height: "48px",
+                    width: "56px",
+                    height: "56px",
                     borderRadius: "6px",
                   }}
                 />

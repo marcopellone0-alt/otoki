@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { X, Search, Loader2 } from "lucide-react";
+import { fetchAlbumArtwork } from "../lib/itunes";
 
 /**
  * Decode HTML entities that come back from the YouTube API
@@ -24,7 +25,7 @@ interface YouTubeResult {
 interface SongPickerProps {
   open: boolean;
   onClose: () => void;
-  onSelect: (videoId: string, title: string) => void;
+  onSelect: (videoId: string, title: string, artworkUrl: string | null) => void;
 }
 
 export default function SongPicker({ open, onClose, onSelect }: SongPickerProps) {
@@ -32,6 +33,7 @@ export default function SongPicker({ open, onClose, onSelect }: SongPickerProps)
   const [results, setResults] = useState<YouTubeResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto-focus the search input when the sheet opens
@@ -44,6 +46,7 @@ export default function SongPicker({ open, onClose, onSelect }: SongPickerProps)
       setQuery("");
       setResults([]);
       setError(null);
+      setSelectingId(null);
     }
   }, [open]);
 
@@ -96,6 +99,19 @@ export default function SongPicker({ open, onClose, onSelect }: SongPickerProps)
       document.body.style.overflow = "";
     };
   }, [open]);
+
+  const handleSelect = async (result: YouTubeResult) => {
+    const decodedTitle = decodeHtmlEntities(result.title);
+    const decodedChannel = decodeHtmlEntities(result.channelTitle);
+
+    setSelectingId(result.videoId);
+
+    // Look up album artwork via iTunes. If it fails or returns nothing,
+    // we pass null and the consumer will fall back to the YouTube thumbnail.
+    const artworkUrl = await fetchAlbumArtwork(decodedTitle, decodedChannel);
+
+    onSelect(result.videoId, decodedTitle, artworkUrl);
+  };
 
   if (!open) return null;
 
@@ -232,54 +248,71 @@ export default function SongPicker({ open, onClose, onSelect }: SongPickerProps)
 
           {!loading && results.length > 0 && (
             <div className="space-y-1">
-              {results.map((result) => (
-                <button
-                  key={result.videoId}
-                  onClick={() =>
-                    onSelect(result.videoId, decodeHtmlEntities(result.title))
-                  }
-                  className="w-full flex items-center gap-3 p-3 rounded-xl transition-colors text-left"
-                  style={{ backgroundColor: "transparent" }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = "#171717")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.backgroundColor = "transparent")
-                  }
-                >
-                  <img
-                    src={result.thumbnail}
-                    alt=""
-                    className="shrink-0 object-cover"
+              {results.map((result) => {
+                const isSelecting = selectingId === result.videoId;
+                return (
+                  <button
+                    key={result.videoId}
+                    onClick={() => handleSelect(result)}
+                    disabled={selectingId !== null}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl transition-colors text-left"
                     style={{
-                      width: "80px",
-                      height: "60px",
-                      borderRadius: "8px",
-                      backgroundColor: "#171717",
+                      backgroundColor: isSelecting ? "#171717" : "transparent",
+                      opacity: selectingId !== null && !isSelecting ? 0.4 : 1,
+                      cursor: selectingId !== null ? "default" : "pointer",
                     }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className="font-semibold text-[14px] leading-[1.3]"
+                    onMouseEnter={(e) => {
+                      if (selectingId === null) {
+                        e.currentTarget.style.backgroundColor = "#171717";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectingId === null) {
+                        e.currentTarget.style.backgroundColor = "transparent";
+                      }
+                    }}
+                  >
+                    <img
+                      src={result.thumbnail}
+                      alt=""
+                      className="shrink-0 object-cover"
                       style={{
-                        color: "#FAFAFA",
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
+                        width: "80px",
+                        height: "60px",
+                        borderRadius: "8px",
+                        backgroundColor: "#171717",
                       }}
-                    >
-                      {decodeHtmlEntities(result.title)}
-                    </p>
-                    <p
-                      className="text-[12px] mt-1 truncate"
-                      style={{ color: "#A3A3A3" }}
-                    >
-                      {decodeHtmlEntities(result.channelTitle)}
-                    </p>
-                  </div>
-                </button>
-              ))}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className="font-semibold text-[14px] leading-[1.3]"
+                        style={{
+                          color: "#FAFAFA",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {decodeHtmlEntities(result.title)}
+                      </p>
+                      <p
+                        className="text-[12px] mt-1 truncate"
+                        style={{ color: "#A3A3A3" }}
+                      >
+                        {decodeHtmlEntities(result.channelTitle)}
+                      </p>
+                    </div>
+                    {isSelecting && (
+                      <Loader2
+                        size={16}
+                        className="animate-spin shrink-0"
+                        style={{ color: "#525252" }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
