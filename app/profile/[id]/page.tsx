@@ -194,7 +194,7 @@ export default function PublicProfile() {
               backgroundImage: `url(${backgroundImage})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
-              filter: "blur(20px)",
+              filter: "blur(10px)",
               transform: "scale(1.1)", // prevents blur edges showing
               opacity: 1,
             }}
@@ -205,7 +205,7 @@ export default function PublicProfile() {
             style={{
               position: "absolute",
               inset: 0,
-              backgroundColor: "rgba(10, 10, 10, 0.5)",
+              backgroundColor: "rgba(10, 10, 10, 0.55)",
             }}
           />
         </div>
