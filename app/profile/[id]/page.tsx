@@ -33,6 +33,10 @@ export default function PublicProfile() {
   const [myRsvps, setMyRsvps] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [favouriteSongMeta, setFavouriteSongMeta] = useState<{
+    title: string | null;
+    artist: string | null;
+  }>({ title: null, artist: null });
 
   useEffect(() => {
     const load = async () => {
@@ -54,6 +58,55 @@ export default function PublicProfile() {
         .single();
 
       setProfile(profileData);
+
+      // Look up song metadata (title + artist) from iTunes if we have a song
+      // This is for display in the audio card. Cheap, cached by browser.
+      if (profileData?.favourite_song_url) {
+        const videoId = extractYouTubeId(profileData.favourite_song_url);
+        if (videoId) {
+          // Try to get title/artist from YouTube oEmbed (no auth, free)
+          try {
+            const oembedRes = await fetch(
+              `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
+            );
+            if (oembedRes.ok) {
+              const oembedData = await oembedRes.json();
+              // oEmbed gives "title" (full video title) and "author_name" (channel)
+              // We split the title on common separators to extract artist - song
+              const fullTitle: string = oembedData.title || "";
+              const author: string = oembedData.author_name || "";
+
+              // Common YouTube title pattern: "Artist - Song" or "Artist: Song"
+              const dashSplit = fullTitle.split(/\s[-–—:]\s/);
+              if (dashSplit.length >= 2) {
+                setFavouriteSongMeta({
+                  artist: dashSplit[0].trim(),
+                  title: dashSplit
+                    .slice(1)
+                    .join(" - ")
+                    .replace(/\([^)]*\)/g, "") // strip "(Official Video)" etc.
+                    .replace(/\[[^\]]*\]/g, "")
+                    .trim(),
+                });
+              } else {
+                // No clear separator — use full title as song, channel as artist
+                setFavouriteSongMeta({
+                  artist: author
+                    .replace(/VEVO$/i, "")
+                    .replace(/\s*-\s*Topic$/i, "")
+                    .trim(),
+                  title: fullTitle
+                    .replace(/\([^)]*\)/g, "")
+                    .replace(/\[[^\]]*\]/g, "")
+                    .trim(),
+                });
+              }
+            }
+          } catch {
+            // oEmbed failed — card will just show "Tap to play" without metadata
+          }
+        }
+      }
 
       // Load their upcoming RSVPs
       const { data: rsvpData } = await supabase
@@ -127,8 +180,8 @@ export default function PublicProfile() {
       style={{ backgroundColor: "#0A0A0A" }}
     >
       {/* ================ BLURRED ALBUM ART BACKGROUND ================ */}
-      {/* Fixed positioning so it stays in place as the user scrolls. */}
-      {/* Heavy blur + dark overlay keeps text legible regardless of image. */}
+      {/* Reduced blur (was 60px, now 20px) since we no longer duplicate the */}
+      {/* image in a foreground video card — let the album art breathe.       */}
       {backgroundImage && (
         <div
           className="fixed inset-0 z-0 pointer-events-none"
@@ -141,17 +194,18 @@ export default function PublicProfile() {
               backgroundImage: `url(${backgroundImage})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
-              filter: "blur(60px)",
-              transform: "scale(1.2)", // prevents blur edges showing
-              opacity: 0.9,
+              filter: "blur(20px)",
+              transform: "scale(1.1)", // prevents blur edges showing
+              opacity: 1,
             }}
           />
-          {/* Dark overlay for legibility — lighter than before to let color through */}
+          {/* Lighter overlay — let more color through now that there's no */}
+          {/* foreground video competing for attention.                    */}
           <div
             style={{
               position: "absolute",
               inset: 0,
-              backgroundColor: "rgba(10, 10, 10, 0.4)",
+              backgroundColor: "rgba(10, 10, 10, 0.5)",
             }}
           />
         </div>
@@ -244,8 +298,13 @@ export default function PublicProfile() {
         )}
       </div>
 
-      {/* ================ FAVOURITE SONG ================ */}
-      <FavouriteSong url={profile.favourite_song_url} />
+      {/* ================ FAVOURITE SONG (audio-only card) ================ */}
+      <FavouriteSong
+        url={profile.favourite_song_url}
+        artworkUrl={profile.favourite_song_artwork_url}
+        title={favouriteSongMeta.title}
+        artist={favouriteSongMeta.artist}
+      />
 
       {/* ================ GOING TO SECTION ================ */}
       <div className="px-6 pb-10">
