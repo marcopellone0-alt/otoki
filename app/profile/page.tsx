@@ -241,7 +241,7 @@ export default function Profile() {
     );
   }
 
-  // Derive thumbnail for the current saved/picked song
+  // Derive thumbnail and background image for the current saved/picked song
   // Prefer iTunes album art, fall back to YouTube thumbnail
   const songVideoId = favouriteSongUrl
     ? extractYouTubeId(favouriteSongUrl)
@@ -249,24 +249,59 @@ export default function Profile() {
   const songPreviewImage =
     favouriteSongArtworkUrl ||
     (songVideoId ? getYouTubeThumbnail(songVideoId) : null);
+  const backgroundImage = songPreviewImage;
 
   return (
     <main
-      className="min-h-screen text-white"
+      className="min-h-screen text-white relative"
       style={{ backgroundColor: "#0A0A0A" }}
     >
+      {/* ================ BLURRED ALBUM ART BACKGROUND ================ */}
+      {/* Matches the public profile so users see the same thing they'll */}
+      {/* present to others. Updates live as the user picks a new song.  */}
+      {backgroundImage && (
+        <div
+          className="fixed inset-0 z-0 pointer-events-none"
+          aria-hidden="true"
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundImage: `url(${backgroundImage})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              filter: "blur(10px)",
+              transform: "scale(1.1)",
+              opacity: 1,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundColor: "rgba(10, 10, 10, 0.55)",
+            }}
+          />
+        </div>
+      )}
+
+      {/* ================ FOREGROUND CONTENT ================ */}
+      <div className="relative z-10">
       {/* ================ STICKY TOP BAR WITH SAVE ================ */}
       <div
         className="sticky top-0 z-30 flex items-center justify-between px-6"
         style={{
-          backgroundColor: "#0A0A0A",
-          borderBottom: "1px solid #171717",
+          backgroundColor: "rgba(10, 10, 10, 0.85)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          borderBottom: "1px solid rgba(23, 23, 23, 0.85)",
           height: "56px",
         }}
       >
         <p
           className="text-[11px] font-semibold uppercase tracking-[0.15em]"
-          style={{ color: "#525252" }}
+          style={{ color: "#A3A3A3" }}
         >
           Edit profile
         </p>
@@ -310,7 +345,7 @@ export default function Profile() {
         >
           EDIT
         </h1>
-        <p className="text-[14px]" style={{ color: "#A3A3A3" }}>
+        <p className="text-[14px]" style={{ color: "#FAFAFA" }}>
           This is what other gig-goers will see.
         </p>
       </div>
@@ -376,13 +411,13 @@ export default function Profile() {
                 color: "#FAFAFA",
                 padding: 0,
                 border: "none",
-                borderBottom: "1px solid #262626",
+                borderBottom: "1px solid rgba(38, 38, 38, 0.85)",
                 paddingBottom: "4px",
               }}
             />
             <p
               className="text-[11px] font-semibold uppercase tracking-[0.1em] mt-2"
-              style={{ color: "#525252" }}
+              style={{ color: "#A3A3A3" }}
             >
               {uploading ? "Uploading photo..." : "Tap photo to change"}
             </p>
@@ -393,7 +428,7 @@ export default function Profile() {
         <div className="mt-6">
           <label
             className="text-[11px] font-semibold uppercase tracking-[0.1em] block mb-2"
-            style={{ color: "#525252" }}
+            style={{ color: "#A3A3A3" }}
           >
             Bio
           </label>
@@ -405,14 +440,16 @@ export default function Profile() {
             maxLength={200}
             className="w-full text-[15px] leading-[1.5] rounded-xl px-4 py-3 focus:outline-none resize-none"
             style={{
-              backgroundColor: "#171717",
+              backgroundColor: "rgba(23, 23, 23, 0.85)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
               border: "1px solid #262626",
               color: "#FAFAFA",
             }}
           />
           <p
             className="text-[11px] text-right mt-1"
-            style={{ color: "#525252" }}
+            style={{ color: "#A3A3A3" }}
           >
             {bio.length}/200
           </p>
@@ -422,7 +459,7 @@ export default function Profile() {
         <div className="mt-6">
           <label
             className="text-[11px] font-semibold uppercase tracking-[0.1em] block mb-2"
-            style={{ color: "#525252" }}
+            style={{ color: "#A3A3A3" }}
           >
             Favourite song
           </label>
@@ -432,7 +469,9 @@ export default function Profile() {
             <div
               className="flex items-center gap-3 p-3 rounded-xl"
               style={{
-                backgroundColor: "#171717",
+                backgroundColor: "rgba(23, 23, 23, 0.85)",
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)",
                 border: "1px solid #262626",
               }}
             >
@@ -466,7 +505,7 @@ export default function Profile() {
               <button
                 onClick={handleSongRemove}
                 className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
-                style={{ color: "#525252" }}
+                style={{ color: "#A3A3A3" }}
                 aria-label="Remove song"
               >
                 <X size={16} />
@@ -478,7 +517,9 @@ export default function Profile() {
               onClick={() => setPickerOpen(true)}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl transition-colors"
               style={{
-                backgroundColor: "#171717",
+                backgroundColor: "rgba(23, 23, 23, 0.85)",
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)",
                 border: "1px dashed #262626",
                 color: "#A3A3A3",
               }}
@@ -492,7 +533,7 @@ export default function Profile() {
 
           <p
             className="text-[11px] mt-1.5"
-            style={{ color: "#525252" }}
+            style={{ color: "#A3A3A3" }}
           >
             One song that says something about you.
           </p>
@@ -512,11 +553,13 @@ export default function Profile() {
           <div
             className="rounded-2xl p-6 text-center"
             style={{
-              backgroundColor: "#171717",
+              backgroundColor: "rgba(23, 23, 23, 0.85)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
               border: "1px dashed #262626",
             }}
           >
-            <p className="text-[14px]" style={{ color: "#A3A3A3" }}>
+            <p className="text-[14px]" style={{ color: "#FAFAFA" }}>
               No upcoming gigs yet.
             </p>
             <a
@@ -536,7 +579,9 @@ export default function Profile() {
                   key={gig.id}
                   className="relative overflow-hidden"
                   style={{
-                    backgroundColor: "#171717",
+                    backgroundColor: "rgba(23, 23, 23, 0.85)",
+                    backdropFilter: "blur(8px)",
+                    WebkitBackdropFilter: "blur(8px)",
                     borderRadius: "16px",
                     borderLeft: "3px solid #FF0033",
                   }}
@@ -600,7 +645,7 @@ export default function Profile() {
         </h2>
         <p
           className="text-[12px] mb-4"
-          style={{ color: "#525252" }}
+          style={{ color: "#A3A3A3" }}
         >
           Tap to select. These show on your public profile.
         </p>
@@ -613,9 +658,13 @@ export default function Profile() {
                 onClick={() => toggleGenre(genre)}
                 className="text-[13px] font-semibold px-4 py-2 rounded-full transition-colors"
                 style={{
-                  backgroundColor: selected ? "#FF0033" : "transparent",
+                  backgroundColor: selected
+                    ? "#FF0033"
+                    : "rgba(23, 23, 23, 0.85)",
+                  backdropFilter: selected ? "none" : "blur(8px)",
+                  WebkitBackdropFilter: selected ? "none" : "blur(8px)",
                   border: selected ? "1px solid #FF0033" : "1px solid #262626",
-                  color: selected ? "#FFFFFF" : "#A3A3A3",
+                  color: selected ? "#FFFFFF" : "#FAFAFA",
                 }}
               >
                 {genre}
@@ -635,7 +684,7 @@ export default function Profile() {
         </h2>
         <p
           className="text-[12px] mb-4"
-          style={{ color: "#525252" }}
+          style={{ color: "#A3A3A3" }}
         >
           Where you usually catch shows.
         </p>
@@ -648,9 +697,13 @@ export default function Profile() {
                 onClick={() => toggleVenue(venue)}
                 className="text-[13px] font-semibold px-4 py-2 rounded-full transition-colors"
                 style={{
-                  backgroundColor: selected ? "#FF0033" : "transparent",
+                  backgroundColor: selected
+                    ? "#FF0033"
+                    : "rgba(23, 23, 23, 0.85)",
+                  backdropFilter: selected ? "none" : "blur(8px)",
+                  WebkitBackdropFilter: selected ? "none" : "blur(8px)",
                   border: selected ? "1px solid #FF0033" : "1px solid #262626",
-                  color: selected ? "#FFFFFF" : "#A3A3A3",
+                  color: selected ? "#FFFFFF" : "#FAFAFA",
                 }}
               >
                 {venue}
@@ -663,12 +716,12 @@ export default function Profile() {
       {/* ================ LOGOUT (footer, in normal flow) ================ */}
       <div
         className="px-6 py-8 mt-2 text-center"
-        style={{ borderTop: "1px solid #171717" }}
+        style={{ borderTop: "1px solid rgba(23, 23, 23, 0.85)" }}
       >
         <button
           onClick={handleLogout}
           className="inline-flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider transition-colors"
-          style={{ color: "#525252" }}
+          style={{ color: "#A3A3A3" }}
         >
           <LogOut size={14} />
           Log out
@@ -681,6 +734,7 @@ export default function Profile() {
         onClose={() => setPickerOpen(false)}
         onSelect={handleSongSelect}
       />
+      </div>
     </main>
   );
 }
