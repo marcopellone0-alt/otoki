@@ -143,15 +143,15 @@ export default function PublicProfile() {
               backgroundPosition: "center",
               filter: "blur(60px)",
               transform: "scale(1.2)", // prevents blur edges showing
-              opacity: 0.5,
+              opacity: 0.9,
             }}
           />
-          {/* Dark overlay for legibility */}
+          {/* Dark overlay for legibility — lighter than before to let color through */}
           <div
             style={{
               position: "absolute",
               inset: 0,
-              backgroundColor: "rgba(10, 10, 10, 0.65)",
+              backgroundColor: "rgba(10, 10, 10, 0.4)",
             }}
           />
         </div>
