@@ -65,8 +65,6 @@ const curatedGigToTicketmasterShape = (curated: any) => ({
         address: curated.venue_address ? { line1: curated.venue_address } : null,
       },
     ],
-    // No attractions for curated gigs — mixtape route handles missing attractions
-    // by falling back to title parsing
     attractions: [],
   },
   images: curated.image_url
@@ -175,7 +173,6 @@ export default function Home() {
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
-      // Fetch Ticketmaster gigs and curated gigs in parallel
       const [tmResponse, curatedResponse] = await Promise.all([
         fetch(`/api/gigs?from=${fromDate}&to=${toDate}`),
         supabase
@@ -189,10 +186,8 @@ export default function Home() {
       const liveEvents = tmData._embedded?.events || [];
       const curatedRaw = curatedResponse.data || [];
 
-      // Reshape curated gigs to match Ticketmaster's structure
       const curatedReshaped = curatedRaw.map(curatedGigToTicketmasterShape);
 
-      // Combine and dedupe by name (curated takes precedence if duplicate)
       const allGigs = [...curatedReshaped, ...liveEvents];
       const uniqueGigs = Array.from(
         new Map(allGigs.map((gig: any) => [gig.name.toLowerCase(), gig])).values()
@@ -580,6 +575,7 @@ export default function Home() {
 
         {/* Form */}
         <div className="space-y-4">
+          {/* Location — static label, not a dropdown */}
           <div className="space-y-1.5">
             <label
               className="text-[11px] font-semibold uppercase tracking-[0.1em] block"
@@ -587,18 +583,16 @@ export default function Home() {
             >
               Location
             </label>
-            <select
-              className="w-full text-[15px] font-medium rounded-xl px-4 py-4 appearance-none focus:outline-none"
+            <div
+              className="w-full text-[15px] font-medium rounded-xl px-4 py-4"
               style={{
                 backgroundColor: "#171717",
                 border: "1px solid #262626",
                 color: "#FAFAFA",
               }}
             >
-              <option value="CBD">Melbourne CBD</option>
-              <option value="Inner North">Inner North</option>
-              <option value="Werribee">Werribee</option>
-            </select>
+              Naarm / Melbourne
+            </div>
           </div>
 
           <div className="flex gap-3">
