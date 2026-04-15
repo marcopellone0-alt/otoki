@@ -4,31 +4,12 @@ import { createClient } from "@supabase/supabase-js";
 import { normalize, extractArtists, scoreResult } from "../../lib/artist-utils";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // Allow up to 60s for large builds
+export const maxDuration = 60;
 
-const SEARCH_BATCH_SIZE = 8; // Issue 27: stay under YouTube's per-second rate limit
-const INSERT_BATCH_SIZE = 5; // Parallel playlist inserts
-const MAX_GIGS = 30; // Issue: raised from 15
+const SEARCH_BATCH_SIZE = 8;
+const MAX_GIGS = 30;
 const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-/**
- * Fully optimized YouTube Mixtape builder.
- *
- * Flow:
- * 1. Validate OAuth token (Issue 15)
- * 2. Extract + deduplicate all artists from gigs (Issues 13, 18)
- * 3. Batch cache lookup — one Supabase query (Issues 8, 26)
- * 4. Collect manual overrides + cached results (Issue 25)
- * 5. Search YouTube for uncached artists — parallel, batched, using API key (Issues 1, 2, 27, 33)
- * 6. Verify all video IDs via oEmbed — free, parallel (Issue 30)
- * 7. Deduplicate by video ID (Issue 28)
- * 8. Create playlist only if tracks found (Issue 11), with dynamic name (Issues 20, 24)
- * 9. Insert tracks with position parameter — parallel batched (Issue 29)
- * 10. Return stats (Issue 16)
- *
- * Searches use YOUTUBE_API_KEY (non-personalized, consistent caching).
- * Only playlist creation + item insertion use the user's OAuth token.
- */
 export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
@@ -45,7 +26,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Issue 15: Validate OAuth token before burning any quota
+    // Validate OAuth token before burning any quota
     const tokenCheck = await fetch(
       `https://www.googleapis.com/youtube/v3/channels?part=id&mine=true`,
       { headers: { Authorization: `Bearer ${token}` } }
@@ -54,11 +35,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No token" }, { status: 401 });
     }
 
-    // Issue 19: Client sends trimmed payload — { gigs, dateRange }
     const { gigs, dateRange } = await request.json();
     const ytApi = "https://www.googleapis.com/youtube/v3";
 
-    // Supabase client for cache operations
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -72,7 +51,7 @@ export async function POST(request: Request) {
     });
 
     // ==================================================================
-    // STEP 1: Extract all artists + manual video IDs (Issues 13, 14, 18, 25)
+    // STEP 1: Extract all artists + manual video IDs
     // ==================================================================
 
     type ArtistEntry = {
@@ -88,7 +67,7 @@ export async function POST(request: Request) {
     for (let i = 0; i < Math.min(sortedGigs.length, MAX_GIGS); i++) {
       const gig = sortedGigs[i];
 
-      // Issue 25: Manual video ID from curated gigs — skip all searching
+      // Manual video ID from curated gigs — skip all searching
       if (gig._curated_youtube_video_id) {
         const artistName = gig._curated_artist_name || gig.name;
         const norm = normalize(artistName);
@@ -104,7 +83,6 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Issue 18: extractArtists handles multi-bill parsing (+, w/, feat., etc.)
       const artists = extractArtists(gig);
       for (const artist of artists) {
         const norm = normalize(artist);
@@ -120,7 +98,7 @@ export async function POST(request: Request) {
     );
 
     // ==================================================================
-    // STEP 2: Batch cache lookup — one Supabase query (Issues 8, 26)
+    // STEP 2: Batch cache lookup — one Supabase query
     // ==================================================================
 
     const uncachedNorms = artistEntries
@@ -140,7 +118,8 @@ export async function POST(request: Request) {
 
       for (const row of cachedData || []) {
         const age = Date.now() - new Date(row.cached_at).getTime();
-        if (age < CACHE_MAX_AGE_MS) {
+        // Only use fresh cache entries with valid-looking video IDs
+        if (age < CACHE_MAX_AGE_MS && row.video_id && row.video_id.length === 11) {
           cacheMap.set(row.artist_name_normalized, {
             video_id: row.video_id,
             video_title: row.video_title || "",
@@ -155,7 +134,7 @@ export async function POST(request: Request) {
     );
 
     // ==================================================================
-    // STEP 3: Categorize + collect known video IDs (Issues 8, 25)
+    // STEP 3: Collect video IDs from manual overrides + cache
     // ==================================================================
 
     type TrackResult = {
@@ -168,7 +147,7 @@ export async function POST(request: Request) {
     const tracks: TrackResult[] = [];
     const missed: string[] = [];
 
-    // Manual overrides — instant, no search needed
+    // Manual overrides
     for (const entry of artistEntries) {
       if (entry.manualVideoId) {
         tracks.push({
@@ -180,7 +159,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Cached results — instant, no search needed
+    // Cached results
     for (const entry of artistEntries) {
       if (!entry.manualVideoId && cacheMap.has(entry.normalized)) {
         const cached = cacheMap.get(entry.normalized)!;
@@ -194,7 +173,7 @@ export async function POST(request: Request) {
     }
 
     // ==================================================================
-    // STEP 4: Search YouTube for uncached artists (Issues 1, 2, 22, 23, 27, 33)
+    // STEP 4: Search YouTube for uncached artists (parallel, batched)
     // ==================================================================
 
     const needSearch = artistEntries.filter(
@@ -204,9 +183,6 @@ export async function POST(request: Request) {
     let searchCount = 0;
     let quotaExhausted = false;
 
-    // Issue 2: Single search per artist (not two). maxResults=5 (Issue 23).
-    // Issue 33: Uses API key, not user's OAuth token.
-    // Issue 12: regionCode=AU for playable results.
     const searchArtist = async (
       entry: ArtistEntry
     ): Promise<TrackResult | null> => {
@@ -218,7 +194,6 @@ export async function POST(request: Request) {
         `&type=video&videoCategoryId=10&maxResults=5&regionCode=AU` +
         `&key=${apiKey}`;
 
-      // Issue 22: Retry on network errors, NOT on quota errors
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const res = await fetch(searchUrl, { cache: "no-store" });
@@ -244,11 +219,13 @@ export async function POST(request: Request) {
 
           if (!data.items?.length) return null;
 
-          // Issue 3: Three-tier scoring
           let bestResult: any = null;
           let bestScore = 0;
 
           for (const result of data.items) {
+            // Guard: only consider results that have a videoId
+            if (!result.id?.videoId) continue;
+
             const score = scoreResult(result, entry.normalized);
             if (score > bestScore) {
               bestScore = score;
@@ -262,7 +239,7 @@ export async function POST(request: Request) {
           const videoTitle = bestResult.snippet.title;
           const channelTitle = bestResult.snippet.channelTitle;
 
-          // Issue 8: Cache the result for future builds
+          // Cache the result
           await supabase.from("artist_cache").upsert(
             {
               artist_name_normalized: entry.normalized,
@@ -296,7 +273,7 @@ export async function POST(request: Request) {
       return null;
     };
 
-    // Issue 27: Process in batches of 8 to stay under per-second rate limits
+    // Searches stay parallel in batches of 8 — this works fine
     for (let i = 0; i < needSearch.length; i += SEARCH_BATCH_SIZE) {
       if (quotaExhausted) break;
       const batch = needSearch.slice(i, i + SEARCH_BATCH_SIZE);
@@ -310,16 +287,14 @@ export async function POST(request: Request) {
       }
     }
 
-
-
     // ==================================================================
-    // STEP 6: Deduplicate by video ID (Issue 28)
+    // STEP 5: Deduplicate by video ID
     // ==================================================================
 
     const seenVideoIds = new Set<string>();
     const dedupedTracks: TrackResult[] = [];
 
-    // Issue 29: Sort by gigIndex first so dedup keeps the chronologically-first occurrence
+    // Sort by gigIndex for chronological order
     tracks.sort((a, b) => a.gigIndex - b.gigIndex);
 
     for (const track of tracks) {
@@ -330,7 +305,7 @@ export async function POST(request: Request) {
     }
 
     // ==================================================================
-    // STEP 7: Create playlist ONLY if we have tracks (Issue 11)
+    // STEP 6: Create playlist only if we have tracks
     // ==================================================================
 
     if (dedupedTracks.length === 0) {
@@ -345,7 +320,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // Issue 24: Dynamic playlist title + description
+    // Dynamic playlist title + description
     const dateLabel = dateRange
       ? `${new Date(dateRange.from + "T00:00:00").toLocaleDateString("en-AU", {
           day: "numeric",
@@ -357,7 +332,6 @@ export async function POST(request: Request) {
         })}`
       : "This Week";
 
-    // Collect unique venue names for description
     const venues = [
       ...new Set(
         sortedGigs
@@ -371,7 +345,6 @@ export async function POST(request: Request) {
         ? venues.join(", ")
         : `${venues.slice(0, 3).join(", ")} + ${venues.length - 3} more`;
 
-    // Issue 20: Named with date range instead of generic title
     const playlistRes = await fetch(`${ytApi}/playlists?part=snippet,status`, {
       method: "POST",
       headers: {
@@ -400,47 +373,58 @@ export async function POST(request: Request) {
     console.log(`[Otoki] Created playlist: ${playlistId} — "${dateLabel}"`);
 
     // ==================================================================
-    // STEP 8: Insert tracks with position — parallel batched (Issue 29)
+    // STEP 7: Insert tracks SEQUENTIALLY (parallel causes 409 conflicts)
     // ==================================================================
 
     let addedCount = 0;
 
-    for (let i = 0; i < dedupedTracks.length; i += INSERT_BATCH_SIZE) {
-      const batch = dedupedTracks.slice(i, i + INSERT_BATCH_SIZE);
-      const insertResults = await Promise.all(
-        batch.map((track, batchIdx) =>
-          fetch(`${ytApi}/playlistItems?part=snippet`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              snippet: {
-                playlistId,
-                resourceId: {
-                  kind: "youtube#video",
-                  videoId: track.videoId,
-                },
+    for (const track of dedupedTracks) {
+      try {
+        const insertRes = await fetch(`${ytApi}/playlistItems?part=snippet`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            snippet: {
+              playlistId,
+              resourceId: {
+                kind: "youtube#video",
+                videoId: track.videoId,
               },
-            }),
-          })
-        )
-      );
+            },
+          }),
+        });
 
-      for (const res of insertResults) {
-        if (res.ok) {
+        if (insertRes.ok) {
           addedCount++;
         } else {
-          try {
-            const err = await res.json();
-            console.error(`[Otoki] Insert failed:`, err);
-          } catch {}
+          const err = await insertRes.json();
+          console.error(
+            `[Otoki] Insert failed for "${track.artistName}" (${track.videoId}):`,
+            err
+          );
+          // If the video is unplayable/unavailable, purge it from cache
+          if (err.error?.code === 400 || err.error?.code === 404) {
+            await supabase
+              .from("artist_cache")
+              .delete()
+              .eq("video_id", track.videoId);
+            console.log(
+              `[Otoki] Purged bad cache entry: ${track.videoId}`
+            );
+          }
         }
+      } catch (err) {
+        console.error(
+          `[Otoki] Insert network error for "${track.artistName}":`,
+          err
+        );
       }
     }
 
-    // Issue 32: Quota logging
+    // Quota logging
     const quotaEstimate =
       searchCount * 100 + (dedupedTracks.length + 1) * 50;
     console.log(
@@ -449,7 +433,6 @@ export async function POST(request: Request) {
         `~${quotaEstimate} quota units.`
     );
 
-    // Issue 16: Return stats alongside URL
     return NextResponse.json({
       url: `https://music.youtube.com/playlist?list=${playlistId}`,
       tracksAdded: addedCount,
