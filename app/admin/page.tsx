@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { Plus, Trash2, Calendar, MapPin, Ticket, Loader2, Check } from "lucide-react";
+import { Plus, Trash2, Calendar, MapPin, Ticket, Music, Loader2, Check } from "lucide-react";
 
 // Hardcoded admin user ID — only Marco can access this page
 const ADMIN_USER_ID = "84bc8318-7103-469d-960e-00ef456d6853";
@@ -21,6 +21,8 @@ export default function Admin() {
   const [ticketUrl, setTicketUrl] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [description, setDescription] = useState("");
+  const [artistName, setArtistName] = useState("");
+  const [youtubeVideoId, setYoutubeVideoId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [justAddedAt, setJustAddedAt] = useState<number | null>(null);
 
@@ -66,6 +68,8 @@ export default function Admin() {
       ticket_url: ticketUrl.trim() || null,
       image_url: imageUrl.trim() || null,
       description: description.trim() || null,
+      artist_name: artistName.trim() || null,
+      youtube_video_id: youtubeVideoId.trim() || null,
       created_by: user.id,
     });
 
@@ -78,6 +82,8 @@ export default function Admin() {
       setTicketUrl("");
       setImageUrl("");
       setDescription("");
+      setArtistName("");
+      setYoutubeVideoId("");
       setJustAddedAt(Date.now());
       await loadCuratedGigs();
     } else {
@@ -95,7 +101,7 @@ export default function Admin() {
   };
 
   // ==========================================================================
-  // AUTH GATE — show loading, then 404-style block if not Marco
+  // AUTH GATE
   // ==========================================================================
 
   if (authChecking) {
@@ -134,7 +140,7 @@ export default function Admin() {
   }
 
   // ==========================================================================
-  // ADMIN VIEW — Marco is logged in
+  // ADMIN VIEW
   // ==========================================================================
 
   const canSubmit = name.trim() && gigDate && venueName.trim() && !submitting;
@@ -177,7 +183,7 @@ export default function Admin() {
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Mac DeMarco — Live at The Tote"
+            placeholder="e.g. Máquina Peligrosa — Vinyl Launch"
             className="w-full text-[15px] rounded-xl px-4 py-3 focus:outline-none"
             style={{
               backgroundColor: "#171717",
@@ -185,6 +191,31 @@ export default function Admin() {
               color: "#FAFAFA",
             }}
           />
+        </div>
+
+        {/* Artist name (for mixtape matching) */}
+        <div>
+          <label
+            className="text-[11px] font-semibold uppercase tracking-[0.1em] block mb-2"
+            style={{ color: "#525252" }}
+          >
+            Artist name
+          </label>
+          <input
+            type="text"
+            value={artistName}
+            onChange={(e) => setArtistName(e.target.value)}
+            placeholder="e.g. Máquina Peligrosa (for mixtape matching)"
+            className="w-full text-[15px] rounded-xl px-4 py-3 focus:outline-none"
+            style={{
+              backgroundColor: "#171717",
+              border: "1px solid #262626",
+              color: "#FAFAFA",
+            }}
+          />
+          <p className="text-[11px] mt-1" style={{ color: "#525252" }}>
+            Separate multiple artists with +
+          </p>
         </div>
 
         {/* Date */}
@@ -277,6 +308,34 @@ export default function Admin() {
               color: "#FAFAFA",
             }}
           />
+        </div>
+
+        {/* YouTube Video ID (for manual mixtape override) */}
+        <div>
+          <label
+            className="text-[11px] font-semibold uppercase tracking-[0.1em] block mb-2"
+            style={{ color: "#525252" }}
+          >
+            YouTube video ID
+          </label>
+          <input
+            type="text"
+            value={youtubeVideoId}
+            onChange={(e) => setYoutubeVideoId(e.target.value)}
+            placeholder="e.g. dQw4w9WgXcQ (11 chars from the URL)"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            className="w-full text-[14px] rounded-xl px-4 py-3 focus:outline-none"
+            style={{
+              backgroundColor: "#171717",
+              border: "1px solid #262626",
+              color: "#FAFAFA",
+            }}
+          />
+          <p className="text-[11px] mt-1" style={{ color: "#525252" }}>
+            Optional — guarantees this artist appears in the mixtape.
+          </p>
         </div>
 
         {/* Image URL */}
@@ -412,7 +471,7 @@ export default function Admin() {
                       {gig.name}
                     </p>
                     <div
-                      className="flex items-center gap-3 mt-2 text-[12px]"
+                      className="flex items-center gap-3 mt-2 text-[12px] flex-wrap"
                       style={{ color: "#A3A3A3" }}
                     >
                       <span className="flex items-center gap-1">
@@ -439,6 +498,23 @@ export default function Admin() {
                         </a>
                       )}
                     </div>
+                    {/* Show artist name and YT video ID if set */}
+                    {(gig.artist_name || gig.youtube_video_id) && (
+                      <div
+                        className="flex items-center gap-3 mt-1.5 text-[11px]"
+                        style={{ color: "#525252" }}
+                      >
+                        {gig.artist_name && (
+                          <span className="flex items-center gap-1">
+                            <Music size={10} />
+                            {gig.artist_name}
+                          </span>
+                        )}
+                        {gig.youtube_video_id && (
+                          <span>YT: {gig.youtube_video_id}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => handleDelete(gig.id)}

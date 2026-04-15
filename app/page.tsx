@@ -28,13 +28,10 @@ const formatGigDate = (dateStr: string | null | undefined) => {
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const isRecentlyAdded = (createdAt: string | null | undefined): boolean => {
   if (!createdAt) return false;
-  const added = new Date(createdAt).getTime();
-  const now = Date.now();
-  return now - added < SEVEN_DAYS_MS;
+  return Date.now() - new Date(createdAt).getTime() < SEVEN_DAYS_MS;
 };
 
 const groupGigsByDay = (gigs: any[]) => {
-  const groups: { label: string; sortKey: string; gigs: any[] }[] = [];
   const byKey = new Map<string, { label: string; sortKey: string; gigs: any[] }>();
 
   for (const gig of gigs) {
@@ -58,9 +55,8 @@ const groupGigsByDay = (gigs: any[]) => {
   return Array.from(byKey.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 };
 
-// Convert a Supabase curated_gig row into the same shape Ticketmaster uses,
-// so the rest of the app can treat them identically. Preserves created_at
-// so we can badge recent additions as NEW.
+// Convert a Supabase curated_gig row into the same shape Ticketmaster uses.
+// Passes through curated-specific fields for mixtape matching + NEW badge.
 const curatedGigToTicketmasterShape = (curated: any) => ({
   id: `curated-${curated.id}`,
   name: curated.name,
@@ -77,11 +73,28 @@ const curatedGigToTicketmasterShape = (curated: any) => ({
     ],
     attractions: [],
   },
-  images: curated.image_url
-    ? [{ url: curated.image_url, ratio: "16_9" }]
-    : [],
-  // Pass through the creation timestamp for NEW badge logic
+  images: curated.image_url ? [{ url: curated.image_url, ratio: "16_9" }] : [],
+  // Curated-specific fields for mixtape + NEW badge
   _curated_created_at: curated.created_at,
+  _curated_artist_name: curated.artist_name || null,
+  _curated_youtube_video_id: curated.youtube_video_id || null,
+});
+
+// Issue 19: Trim gig objects before sending to mixtape/pre-warm endpoints.
+// Ticketmaster gigs are huge (~10KB each). We only need the fields that matter.
+const trimGigForPayload = (gig: any) => ({
+  name: gig.name,
+  dates: gig.dates,
+  _embedded: {
+    venues: gig._embedded?.venues?.map((v: any) => ({ name: v.name })) || [],
+    attractions:
+      gig._embedded?.attractions?.map((a: any) => ({
+        name: a.name,
+        classifications: a.classifications,
+      })) || [],
+  },
+  _curated_artist_name: gig._curated_artist_name || null,
+  _curated_youtube_video_id: gig._curated_youtube_video_id || null,
 });
 
 // ============================================================================
@@ -94,6 +107,11 @@ export default function Home() {
   const [gigs, setGigs] = useState<any[]>([]);
   const [isBuildingMixtape, setIsBuildingMixtape] = useState(false);
   const [mixtapeUrl, setMixtapeUrl] = useState<string | null>(null);
+  const [mixtapeStats, setMixtapeStats] = useState<{
+    tracksAdded: number;
+    totalArtists: number;
+    missed: string[];
+  } | null>(null);
 
   const today = new Date().toISOString().split("T")[0];
   const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
@@ -168,6 +186,16 @@ export default function Home() {
     setLoadingAttendees(false);
   };
 
+  // Issue 34: Fire pre-warm in background after gigs are loaded
+  const preWarmArtists = (gigList: any[]) => {
+    const trimmed = gigList.map(trimGigForPayload);
+    fetch("/api/pre-warm-artists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gigs: trimmed }),
+    }).catch(() => {}); // Fire-and-forget — errors don't affect the user
+  };
+
   useEffect(() => {
     const stashedGigs = sessionStorage.getItem("otoki_recovery_gigs");
     if (stashedGigs) {
@@ -176,6 +204,8 @@ export default function Home() {
         setGigs(parsedGigs);
         setShowDashboard(true);
         sessionStorage.removeItem("otoki_recovery_gigs");
+        // Pre-warm recovered gigs too
+        preWarmArtists(parsedGigs);
       } catch (error) {
         console.error("Failed to parse recovered gigs:", error);
       }
@@ -184,6 +214,8 @@ export default function Home() {
 
   const handleGenerate = async () => {
     setIsGenerating(true);
+    setMixtapeUrl(null);
+    setMixtapeStats(null);
     try {
       const [tmResponse, curatedResponse] = await Promise.all([
         fetch(`/api/gigs?from=${fromDate}&to=${toDate}`),
@@ -208,6 +240,9 @@ export default function Home() {
       setGigs(uniqueGigs);
       setShowDashboard(true);
       loadRsvps(uniqueGigs);
+
+      // Issue 34: Pre-warm cache while user browses
+      preWarmArtists(uniqueGigs);
     } catch (error) {
       console.error("Error fetching gigs:", error);
       alert("Whoops, couldn't grab the gigs. Try again.");
@@ -219,20 +254,44 @@ export default function Home() {
   const handleBuildMixtape = async () => {
     setIsBuildingMixtape(true);
     setMixtapeUrl(null);
+    setMixtapeStats(null);
     try {
+      // Issue 19: Send trimmed payload + date range
+      const trimmedGigs = gigs.map(trimGigForPayload);
+
       const response = await fetch("/api/yt-mixtape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gigs }),
+        body: JSON.stringify({
+          gigs: trimmedGigs,
+          dateRange: { from: fromDate, to: toDate },
+        }),
       });
+
       if (response.status === 401) {
+        // Stash FULL gigs for recovery (we need all data for RSVPs etc.)
         sessionStorage.setItem("otoki_recovery_gigs", JSON.stringify(gigs));
         window.location.href = "/api/yt-login";
         return;
       }
+
       const data = await response.json();
+
       if (data.url) {
         setMixtapeUrl(data.url);
+        setMixtapeStats({
+          tracksAdded: data.tracksAdded || 0,
+          totalArtists: data.totalArtists || 0,
+          missed: data.missed || [],
+        });
+      } else if (data.tracksAdded === 0) {
+        // No tracks found
+        setMixtapeStats({
+          tracksAdded: 0,
+          totalArtists: data.totalArtists || 0,
+          missed: data.missed || [],
+        });
+        alert("No matching tracks found for these gigs.");
       } else {
         alert("Something went wrong building the mixtape.");
       }
@@ -326,11 +385,7 @@ export default function Home() {
               ) : (
                 <div className="space-y-3">
                   {attendees.map((a: any, i: number) => (
-                    <div
-                      key={i}
-                      className="p-4 rounded-2xl"
-                      style={{ backgroundColor: "#0A0A0A" }}
-                    >
+                    <div key={i} className="p-4 rounded-2xl" style={{ backgroundColor: "#0A0A0A" }}>
                       <a
                         href={`/profile/${a.user_id}`}
                         className="text-[16px] font-bold transition-colors"
@@ -391,19 +446,30 @@ export default function Home() {
           }}
         >
           {mixtapeUrl ? (
-            <a
-              href={mixtapeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full text-center font-extrabold text-[15px] rounded-full py-4 tracking-wide transition-colors"
-              style={{
-                backgroundColor: "#FF0033",
-                color: "#FFFFFF",
-                boxShadow: "0 8px 32px rgba(255, 0, 51, 0.25)",
-              }}
-            >
-              OPEN IN YOUTUBE MUSIC ↗
-            </a>
+            <div>
+              <a
+                href={mixtapeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center font-extrabold text-[15px] rounded-full py-4 tracking-wide transition-colors"
+                style={{
+                  backgroundColor: "#FF0033",
+                  color: "#FFFFFF",
+                  boxShadow: "0 8px 32px rgba(255, 0, 51, 0.25)",
+                }}
+              >
+                OPEN IN YOUTUBE MUSIC ↗
+              </a>
+              {/* Issue 16: Show stats */}
+              {mixtapeStats && (
+                <p
+                  className="text-center text-[11px] mt-2 font-semibold"
+                  style={{ color: "#525252" }}
+                >
+                  {mixtapeStats.tracksAdded} of {mixtapeStats.totalArtists} artists matched
+                </p>
+              )}
+            </div>
           ) : (
             <button
               onClick={handleBuildMixtape}
@@ -445,9 +511,6 @@ export default function Home() {
                     const dateInfo = formatGigDate(gig.dates?.start?.localDate);
                     const isGoing = rsvps.has(gig.id);
                     const count = rsvpCounts[gig.id] || 0;
-                    // NEW badge fires for curated gigs added in the last 7 days.
-                    // Ticketmaster gigs don't have a reliable "added to system"
-                    // timestamp, so they never show the badge.
                     const isNew = isRecentlyAdded(gig._curated_created_at);
 
                     return (
@@ -464,10 +527,7 @@ export default function Home() {
                           {/* Stacked date block */}
                           <div
                             className="shrink-0 flex flex-col items-center justify-center rounded-xl px-3 py-2.5"
-                            style={{
-                              backgroundColor: "#0A0A0A",
-                              minWidth: "56px",
-                            }}
+                            style={{ backgroundColor: "#0A0A0A", minWidth: "56px" }}
                           >
                             <span
                               className="text-[10px] font-semibold tracking-wider"
@@ -491,7 +551,6 @@ export default function Home() {
 
                           {/* Gig details */}
                           <div className="flex-1 min-w-0">
-                            {/* Title + NEW badge inline */}
                             <div className="flex items-start gap-2">
                               <h3
                                 className="font-extrabold tracking-[-0.01em] leading-[1.2] flex-1"
@@ -519,10 +578,7 @@ export default function Home() {
                         </div>
 
                         {/* Actions row */}
-                        <div
-                          className="flex items-center gap-2 px-5 pb-5"
-                          style={{ paddingTop: "4px" }}
-                        >
+                        <div className="flex items-center gap-2 px-5 pb-5" style={{ paddingTop: "4px" }}>
                           <button
                             onClick={() => toggleRsvp(gig)}
                             className="font-bold text-[12px] uppercase tracking-wider px-4 py-2 rounded-full transition-colors"
@@ -606,7 +662,7 @@ export default function Home() {
 
         {/* Form */}
         <div className="space-y-4">
-          {/* Location — static label, not a dropdown */}
+          {/* Location — static label */}
           <div className="space-y-1.5">
             <label
               className="text-[11px] font-semibold uppercase tracking-[0.1em] block"
