@@ -310,48 +310,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // ==================================================================
-    // STEP 5: Verify all video IDs via oEmbed — free, parallel (Issue 30)
-    // ==================================================================
 
-    const verifyVideo = async (videoId: string): Promise<boolean> => {
-      try {
-        const res = await fetch(
-          `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
-        );
-        return res.ok;
-      } catch {
-        return false;
-      }
-    };
-
-    const validityChecks = await Promise.all(
-      tracks.map((t) => verifyVideo(t.videoId))
-    );
-
-    const validTracks: TrackResult[] = [];
-    const deadTracks: TrackResult[] = [];
-
-    for (let i = 0; i < tracks.length; i++) {
-      if (validityChecks[i]) {
-        validTracks.push(tracks[i]);
-      } else {
-        deadTracks.push(tracks[i]);
-        missed.push(tracks[i].artistName);
-      }
-    }
-
-    // Clean dead entries from cache so they don't pollute future builds
-    if (deadTracks.length > 0) {
-      const deadVideoIds = deadTracks.map((t) => t.videoId);
-      await supabase
-        .from("artist_cache")
-        .delete()
-        .in("video_id", deadVideoIds);
-      console.log(
-        `[Otoki] Purged ${deadTracks.length} dead videos from cache`
-      );
-    }
 
     // ==================================================================
     // STEP 6: Deduplicate by video ID (Issue 28)
@@ -361,9 +320,9 @@ export async function POST(request: Request) {
     const dedupedTracks: TrackResult[] = [];
 
     // Issue 29: Sort by gigIndex first so dedup keeps the chronologically-first occurrence
-    validTracks.sort((a, b) => a.gigIndex - b.gigIndex);
+    tracks.sort((a, b) => a.gigIndex - b.gigIndex);
 
-    for (const track of validTracks) {
+    for (const track of tracks) {
       if (!seenVideoIds.has(track.videoId)) {
         seenVideoIds.add(track.videoId);
         dedupedTracks.push(track);
@@ -459,7 +418,6 @@ export async function POST(request: Request) {
             body: JSON.stringify({
               snippet: {
                 playlistId,
-                position: i + batchIdx, // Issue 29: maintain chronological order
                 resourceId: {
                   kind: "youtube#video",
                   videoId: track.videoId,
