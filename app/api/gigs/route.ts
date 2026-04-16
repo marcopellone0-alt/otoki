@@ -15,12 +15,28 @@ export async function GET(request: Request) {
     // Filter out non-music events that slip through Ticketmaster's classification
     const events = data._embedded?.events || [];
     const musicOnly = events.filter((event: any) => {
-      const attractions = event._embedded?.attractions;
-      if (!attractions || attractions.length === 0) return false;
-      return attractions.some((a: any) =>
-        a.classifications?.some((c: any) => c.segment?.name === 'Music')
-      );
-    });
+  const attractions = event._embedded?.attractions;
+  if (!attractions || attractions.length === 0) return false;
+
+  // Must have at least one music-classified attraction
+  const hasMusicSegment = attractions.some((a: any) =>
+    a.classifications?.some((c: any) => c.segment?.name === 'Music')
+  );
+  if (!hasMusicSegment) return false;
+
+  // Reject if ANY attraction's genre/subGenre indicates non-music content
+  const nonMusicGenres = /cabaret|variety|circus|comedy|theatre|magic|burlesque|drag|musical|opera/i;
+  const hasNonMusicGenre = attractions.some((a: any) =>
+    a.classifications?.some((c: any) => {
+      const genre = c.genre?.name || '';
+      const subGenre = c.subGenre?.name || '';
+      return nonMusicGenres.test(genre) || nonMusicGenres.test(subGenre);
+    })
+  );
+  if (hasNonMusicGenre) return false;
+
+  return true;
+});
     
     return NextResponse.json({
       ...data,
