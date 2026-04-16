@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
-import { X } from "lucide-react";
+import { X, EyeOff } from "lucide-react";
+
+// Hardcoded admin user ID — only Marco can hide events
+const ADMIN_USER_ID = "84bc8318-7103-469d-960e-00ef456d6853";
 
 // ============================================================================
 // Helpers
@@ -24,7 +27,6 @@ const formatGigDate = (dateStr: string | null | undefined) => {
   };
 };
 
-// Check if a curated gig was added in the last 7 days
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const isRecentlyAdded = (createdAt: string | null | undefined): boolean => {
   if (!createdAt) return false;
@@ -55,15 +57,12 @@ const groupGigsByDay = (gigs: any[]) => {
   return Array.from(byKey.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 };
 
-// Convert a Supabase curated_gig row into the same shape Ticketmaster uses.
-// Passes through curated-specific fields for mixtape matching + NEW badge.
 const curatedGigToTicketmasterShape = (curated: any) => ({
   id: `curated-${curated.id}`,
+  _curatedDbId: curated.id, // Raw Supabase UUID for deletion
   name: curated.name,
   url: curated.ticket_url || null,
-  dates: {
-    start: { localDate: curated.gig_date },
-  },
+  dates: { start: { localDate: curated.gig_date } },
   _embedded: {
     venues: [
       {
@@ -74,14 +73,11 @@ const curatedGigToTicketmasterShape = (curated: any) => ({
     attractions: [],
   },
   images: curated.image_url ? [{ url: curated.image_url, ratio: "16_9" }] : [],
-  // Curated-specific fields for mixtape + NEW badge
   _curated_created_at: curated.created_at,
   _curated_artist_name: curated.artist_name || null,
   _curated_youtube_video_id: curated.youtube_video_id || null,
 });
 
-// Issue 19: Trim gig objects before sending to mixtape/pre-warm endpoints.
-// Ticketmaster gigs are huge (~10KB each). We only need the fields that matter.
 const trimGigForPayload = (gig: any) => ({
   name: gig.name,
   dates: gig.dates,
@@ -123,6 +119,9 @@ export default function Home() {
   const [viewingGig, setViewingGig] = useState<any>(null);
   const [attendees, setAttendees] = useState<any[]>([]);
   const [loadingAttendees, setLoadingAttendees] = useState(false);
+  const [hidingGigId, setHidingGigId] = useState<string | null>(null);
+
+  const isAdmin = user?.id === ADMIN_USER_ID;
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
@@ -186,14 +185,49 @@ export default function Home() {
     setLoadingAttendees(false);
   };
 
-  // Issue 34: Fire pre-warm in background after gigs are loaded
+  const hideGig = async (gig: any) => {
+    if (!isAdmin) return;
+    const isCurated = gig.id.startsWith("curated-");
+    const confirmMsg = isCurated
+      ? `Delete "${gig.name}" from curated gigs?`
+      : `Hide "${gig.name}" from all users?`;
+    if (!confirm(confirmMsg)) return;
+
+    setHidingGigId(gig.id);
+
+    try {
+      if (isCurated) {
+        // Curated gigs: delete from DB entirely
+        await supabase
+          .from("curated_gigs")
+          .delete()
+          .eq("id", gig._curatedDbId);
+      } else {
+        // Ticketmaster gigs: add to hidden_events
+        await supabase.from("hidden_events").insert({
+          event_id: gig.id,
+          event_name: gig.name,
+          hidden_by: user.id,
+        });
+      }
+
+      // Remove from local state optimistically
+      setGigs((prev) => prev.filter((g) => g.id !== gig.id));
+    } catch (err) {
+      console.error("Failed to hide gig:", err);
+      alert("Failed to hide gig. Try again.");
+    } finally {
+      setHidingGigId(null);
+    }
+  };
+
   const preWarmArtists = (gigList: any[]) => {
     const trimmed = gigList.map(trimGigForPayload);
     fetch("/api/pre-warm-artists", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ gigs: trimmed }),
-    }).catch(() => {}); // Fire-and-forget — errors don't affect the user
+    }).catch(() => {});
   };
 
   useEffect(() => {
@@ -204,7 +238,6 @@ export default function Home() {
         setGigs(parsedGigs);
         setShowDashboard(true);
         sessionStorage.removeItem("otoki_recovery_gigs");
-        // Pre-warm recovered gigs too
         preWarmArtists(parsedGigs);
       } catch (error) {
         console.error("Failed to parse recovered gigs:", error);
@@ -217,31 +250,39 @@ export default function Home() {
     setMixtapeUrl(null);
     setMixtapeStats(null);
     try {
-      const [tmResponse, curatedResponse] = await Promise.all([
+      // Fetch everything in parallel including hidden events
+      const [tmResponse, curatedResponse, hiddenResponse] = await Promise.all([
         fetch(`/api/gigs?from=${fromDate}&to=${toDate}`),
         supabase
           .from("curated_gigs")
           .select("*")
           .gte("gig_date", fromDate)
           .lte("gig_date", toDate),
+        supabase
+          .from("hidden_events")
+          .select("event_id")
+          .eq("hidden_by", ADMIN_USER_ID),
       ]);
 
       const tmData = await tmResponse.json();
       const liveEvents = tmData._embedded?.events || [];
       const curatedRaw = curatedResponse.data || [];
+      const hiddenIds = new Set(
+        (hiddenResponse.data || []).map((h: any) => h.event_id)
+      );
 
       const curatedReshaped = curatedRaw.map(curatedGigToTicketmasterShape);
 
+      // Combine, dedupe by name, filter out admin-hidden events
       const allGigs = [...curatedReshaped, ...liveEvents];
       const uniqueGigs = Array.from(
         new Map(allGigs.map((gig: any) => [gig.name.toLowerCase(), gig])).values()
-      );
+      ).filter((gig: any) => !hiddenIds.has(gig.id));
 
       setGigs(uniqueGigs);
       setShowDashboard(true);
       loadRsvps(uniqueGigs);
 
-      // Issue 34: Pre-warm cache while user browses
       preWarmArtists(uniqueGigs);
     } catch (error) {
       console.error("Error fetching gigs:", error);
@@ -256,7 +297,6 @@ export default function Home() {
     setMixtapeUrl(null);
     setMixtapeStats(null);
     try {
-      // Issue 19: Send trimmed payload + date range
       const trimmedGigs = gigs.map(trimGigForPayload);
 
       const response = await fetch("/api/yt-mixtape", {
@@ -269,7 +309,6 @@ export default function Home() {
       });
 
       if (response.status === 401) {
-        // Stash FULL gigs for recovery (we need all data for RSVPs etc.)
         sessionStorage.setItem("otoki_recovery_gigs", JSON.stringify(gigs));
         window.location.href = "/api/yt-login";
         return;
@@ -285,7 +324,6 @@ export default function Home() {
           missed: data.missed || [],
         });
       } else if (data.tracksAdded === 0) {
-        // No tracks found
         setMixtapeStats({
           tracksAdded: 0,
           totalArtists: data.totalArtists || 0,
@@ -332,8 +370,6 @@ export default function Home() {
                 backgroundColor: "#171717",
                 borderTopLeftRadius: "24px",
                 borderTopRightRadius: "24px",
-                borderBottomLeftRadius: "0",
-                borderBottomRightRadius: "0",
               }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -460,7 +496,6 @@ export default function Home() {
               >
                 OPEN IN YOUTUBE MUSIC ↗
               </a>
-              {/* Issue 16: Show stats */}
               {mixtapeStats && (
                 <p
                   className="text-center text-[11px] mt-2 font-semibold"
@@ -512,6 +547,7 @@ export default function Home() {
                     const isGoing = rsvps.has(gig.id);
                     const count = rsvpCounts[gig.id] || 0;
                     const isNew = isRecentlyAdded(gig._curated_created_at);
+                    const isHiding = hidingGigId === gig.id;
 
                     return (
                       <article
@@ -521,9 +557,31 @@ export default function Home() {
                           backgroundColor: "#171717",
                           borderRadius: "16px",
                           borderLeft: isGoing ? "3px solid #FF0033" : "3px solid transparent",
+                          opacity: isHiding ? 0.4 : 1,
+                          transition: "opacity 150ms",
                         }}
                       >
-                        <div className="flex items-start gap-4 p-5 pb-3">
+                        {/* Admin-only hide button in top-right corner */}
+                        {isAdmin && (
+                          <button
+                            onClick={() => hideGig(gig)}
+                            disabled={isHiding}
+                            className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full flex items-center justify-center transition-colors"
+                            style={{
+                              backgroundColor: "rgba(10, 10, 10, 0.6)",
+                              color: "#525252",
+                              cursor: isHiding ? "not-allowed" : "pointer",
+                            }}
+                            aria-label="Hide this gig"
+                          >
+                            <EyeOff size={14} />
+                          </button>
+                        )}
+
+                        <div
+                          className="flex items-start gap-4 p-5 pb-3"
+                          style={{ paddingRight: isAdmin ? "48px" : "20px" }}
+                        >
                           {/* Stacked date block */}
                           <div
                             className="shrink-0 flex flex-col items-center justify-center rounded-xl px-3 py-2.5"
@@ -636,7 +694,6 @@ export default function Home() {
       style={{ backgroundColor: "#0A0A0A" }}
     >
       <div className="max-w-md w-full space-y-12">
-        {/* Wordmark + tagline */}
         <div className="text-center space-y-3">
           <h1
             className="font-black tracking-[-0.04em] leading-[0.9]"
@@ -660,9 +717,7 @@ export default function Home() {
           )}
         </div>
 
-        {/* Form */}
         <div className="space-y-4">
-          {/* Location — static label */}
           <div className="space-y-1.5">
             <label
               className="text-[11px] font-semibold uppercase tracking-[0.1em] block"
@@ -748,7 +803,6 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Footer */}
         <div className="text-center pt-4">
           <a
             href="/privacy"
