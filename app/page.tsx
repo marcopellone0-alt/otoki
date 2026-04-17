@@ -4,12 +4,17 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { X, EyeOff } from "lucide-react";
 
-// Hardcoded admin user ID — only Marco can hide events
 const ADMIN_USER_ID = "84bc8318-7103-469d-960e-00ef456d6853";
 
 // ============================================================================
 // Helpers
 // ============================================================================
+
+const getDateRange = () => {
+  const from = new Date().toISOString().split("T")[0];
+  const to = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  return { from, to };
+};
 
 const formatGigDate = (dateStr: string | null | undefined) => {
   if (!dateStr) return { day: "TBA", date: "", month: "", isToday: false, isTomorrow: false };
@@ -59,7 +64,7 @@ const groupGigsByDay = (gigs: any[]) => {
 
 const curatedGigToTicketmasterShape = (curated: any) => ({
   id: `curated-${curated.id}`,
-  _curatedDbId: curated.id, // Raw Supabase UUID for deletion
+  _curatedDbId: curated.id,
   name: curated.name,
   url: curated.ticket_url || null,
   dates: { start: { localDate: curated.gig_date } },
@@ -109,10 +114,6 @@ export default function Home() {
     missed: string[];
   } | null>(null);
 
-  const today = new Date().toISOString().split("T")[0];
-  const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-  const [fromDate, setFromDate] = useState(today);
-  const [toDate, setToDate] = useState(nextWeek);
   const [user, setUser] = useState<any>(null);
   const [rsvps, setRsvps] = useState<Set<string>>(new Set());
   const [rsvpCounts, setRsvpCounts] = useState<Record<string, number>>({});
@@ -197,21 +198,14 @@ export default function Home() {
 
     try {
       if (isCurated) {
-        // Curated gigs: delete from DB entirely
-        await supabase
-          .from("curated_gigs")
-          .delete()
-          .eq("id", gig._curatedDbId);
+        await supabase.from("curated_gigs").delete().eq("id", gig._curatedDbId);
       } else {
-        // Ticketmaster gigs: add to hidden_events
         await supabase.from("hidden_events").insert({
           event_id: gig.id,
           event_name: gig.name,
           hidden_by: user.id,
         });
       }
-
-      // Remove from local state optimistically
       setGigs((prev) => prev.filter((g) => g.id !== gig.id));
     } catch (err) {
       console.error("Failed to hide gig:", err);
@@ -249,15 +243,17 @@ export default function Home() {
     setIsGenerating(true);
     setMixtapeUrl(null);
     setMixtapeStats(null);
+
+    const { from, to } = getDateRange();
+
     try {
-      // Fetch everything in parallel including hidden events
       const [tmResponse, curatedResponse, hiddenResponse] = await Promise.all([
-        fetch(`/api/gigs?from=${fromDate}&to=${toDate}`),
+        fetch(`/api/gigs?from=${from}&to=${to}`),
         supabase
           .from("curated_gigs")
           .select("*")
-          .gte("gig_date", fromDate)
-          .lte("gig_date", toDate),
+          .gte("gig_date", from)
+          .lte("gig_date", to),
         supabase
           .from("hidden_events")
           .select("event_id")
@@ -273,7 +269,6 @@ export default function Home() {
 
       const curatedReshaped = curatedRaw.map(curatedGigToTicketmasterShape);
 
-      // Combine, dedupe by name, filter out admin-hidden events
       const allGigs = [...curatedReshaped, ...liveEvents];
       const uniqueGigs = Array.from(
         new Map(allGigs.map((gig: any) => [gig.name.toLowerCase(), gig])).values()
@@ -282,7 +277,6 @@ export default function Home() {
       setGigs(uniqueGigs);
       setShowDashboard(true);
       loadRsvps(uniqueGigs);
-
       preWarmArtists(uniqueGigs);
     } catch (error) {
       console.error("Error fetching gigs:", error);
@@ -296,6 +290,9 @@ export default function Home() {
     setIsBuildingMixtape(true);
     setMixtapeUrl(null);
     setMixtapeStats(null);
+
+    const { from, to } = getDateRange();
+
     try {
       const trimmedGigs = gigs.map(trimGigForPayload);
 
@@ -304,7 +301,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           gigs: trimmedGigs,
-          dateRange: { from: fromDate, to: toDate },
+          dateRange: { from, to },
         }),
       });
 
@@ -347,13 +344,6 @@ export default function Home() {
 
   if (showDashboard) {
     const groupedGigs = groupGigsByDay(gigs);
-    const dateRangeLabel = `${new Date(fromDate + "T00:00:00").toLocaleDateString("en-AU", {
-      day: "numeric",
-      month: "short",
-    })} → ${new Date(toDate + "T00:00:00").toLocaleDateString("en-AU", {
-      day: "numeric",
-      month: "short",
-    })}`;
 
     return (
       <main className="min-h-screen text-white" style={{ backgroundColor: "#0A0A0A" }}>
@@ -461,14 +451,14 @@ export default function Home() {
             className="text-[11px] font-semibold uppercase tracking-[0.15em] mb-3"
             style={{ color: "#525252" }}
           >
-            {dateRangeLabel}
+            This week
           </p>
           <h1
             className="font-black leading-[0.95] tracking-[-0.03em]"
             style={{ fontSize: "48px" }}
           >
             GIGS IN<br />
-            MELBOURNE
+            NAARM
           </h1>
         </div>
 
@@ -526,7 +516,7 @@ export default function Home() {
         <div className="px-6 py-6 space-y-10">
           {groupedGigs.length === 0 ? (
             <p className="text-center py-12" style={{ color: "#525252" }}>
-              No gigs found in that range.
+              No gigs this week.
             </p>
           ) : (
             groupedGigs.map((group) => (
@@ -561,7 +551,6 @@ export default function Home() {
                           transition: "opacity 150ms",
                         }}
                       >
-                        {/* Admin-only hide button in top-right corner */}
                         {isAdmin && (
                           <button
                             onClick={() => hideGig(gig)}
@@ -582,7 +571,6 @@ export default function Home() {
                           className="flex items-start gap-4 p-5 pb-3"
                           style={{ paddingRight: isAdmin ? "48px" : "20px" }}
                         >
-                          {/* Stacked date block */}
                           <div
                             className="shrink-0 flex flex-col items-center justify-center rounded-xl px-3 py-2.5"
                             style={{ backgroundColor: "#0A0A0A", minWidth: "56px" }}
@@ -607,7 +595,6 @@ export default function Home() {
                             </span>
                           </div>
 
-                          {/* Gig details */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start gap-2">
                               <h3
@@ -635,7 +622,6 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Actions row */}
                         <div className="flex items-center gap-2 px-5 pb-5" style={{ paddingTop: "4px" }}>
                           <button
                             onClick={() => toggleRsvp(gig)}
@@ -685,7 +671,7 @@ export default function Home() {
   }
 
   // ==========================================================================
-  // LANDING VIEW
+  // LANDING VIEW — simplified, no date picker
   // ==========================================================================
 
   return (
@@ -694,6 +680,7 @@ export default function Home() {
       style={{ backgroundColor: "#0A0A0A" }}
     >
       <div className="max-w-md w-full space-y-12">
+        {/* Wordmark + tagline */}
         <div className="text-center space-y-3">
           <h1
             className="font-black tracking-[-0.04em] leading-[0.9]"
@@ -702,7 +689,7 @@ export default function Home() {
             OTOKI
           </h1>
           <p className="text-[16px] font-medium" style={{ color: "#A3A3A3" }}>
-            Hear who's playing near you tonight.
+            Hear who's playing near you this week.
           </p>
           {!user && (
             <div className="pt-2">
@@ -717,6 +704,7 @@ export default function Home() {
           )}
         </div>
 
+        {/* Location + Find Gigs */}
         <div className="space-y-4">
           <div className="space-y-1.5">
             <label
@@ -737,57 +725,6 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <div className="flex-1 space-y-1.5" style={{ minWidth: 0 }}>
-              <label
-                className="text-[11px] font-semibold uppercase tracking-[0.1em] block"
-                style={{ color: "#525252" }}
-              >
-                From
-              </label>
-              <input
-                type="date"
-                value={fromDate}
-                min={today}
-                onChange={(e) => setFromDate(e.target.value)}
-                className="text-[15px] font-medium rounded-xl px-3 py-4 focus:outline-none"
-                style={{
-                  backgroundColor: "#171717",
-                  border: "1px solid #262626",
-                  color: "#FAFAFA",
-                  width: "100%",
-                  minWidth: 0,
-                  boxSizing: "border-box",
-                  WebkitAppearance: "none",
-                }}
-              />
-            </div>
-            <div className="flex-1 space-y-1.5" style={{ minWidth: 0 }}>
-              <label
-                className="text-[11px] font-semibold uppercase tracking-[0.1em] block"
-                style={{ color: "#525252" }}
-              >
-                To
-              </label>
-              <input
-                type="date"
-                value={toDate}
-                min={fromDate}
-                onChange={(e) => setToDate(e.target.value)}
-                className="text-[15px] font-medium rounded-xl px-3 py-4 focus:outline-none"
-                style={{
-                  backgroundColor: "#171717",
-                  border: "1px solid #262626",
-                  color: "#FAFAFA",
-                  width: "100%",
-                  minWidth: 0,
-                  boxSizing: "border-box",
-                  WebkitAppearance: "none",
-                }}
-              />
-            </div>
-          </div>
-
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
@@ -803,6 +740,7 @@ export default function Home() {
           </button>
         </div>
 
+        {/* Footer */}
         <div className="text-center pt-4">
           <a
             href="/privacy"
