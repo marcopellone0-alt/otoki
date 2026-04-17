@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import { Plus, Trash2, Calendar, MapPin, Ticket, Music, Loader2, Check } from "lucide-react";
 
-// Hardcoded admin user ID — only Marco can access this page
 const ADMIN_USER_ID = "84bc8318-7103-469d-960e-00ef456d6853";
 
 export default function Admin() {
@@ -12,6 +11,12 @@ export default function Admin() {
   const [authChecking, setAuthChecking] = useState(true);
   const [curatedGigs, setCuratedGigs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Weekly note state
+  const [weeklyNote, setWeeklyNote] = useState("");
+  const [existingNoteId, setExistingNoteId] = useState<string | null>(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
 
   // Form state
   const [name, setName] = useState("");
@@ -28,12 +33,14 @@ export default function Admin() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       setUser(user);
       setAuthChecking(false);
 
       if (user?.id === ADMIN_USER_ID) {
-        await loadCuratedGigs();
+        await Promise.all([loadCuratedGigs(), loadWeeklyNote()]);
       }
       setLoading(false);
     };
@@ -48,7 +55,49 @@ export default function Admin() {
     setCuratedGigs(data || []);
   };
 
-  // Auto-clear "added" indicator after 2 seconds
+  const loadWeeklyNote = async () => {
+    // Get the most recent note
+    const { data } = await supabase
+      .from("weekly_notes")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (data && data.length > 0) {
+      setWeeklyNote(data[0].note);
+      setExistingNoteId(data[0].id);
+    }
+  };
+
+  const saveWeeklyNote = async () => {
+    if (!user) return;
+    setSavingNote(true);
+
+    try {
+      if (existingNoteId) {
+        // Update existing
+        await supabase
+          .from("weekly_notes")
+          .update({ note: weeklyNote.trim(), created_at: new Date().toISOString() })
+          .eq("id", existingNoteId);
+      } else {
+        // Create new
+        const { data } = await supabase
+          .from("weekly_notes")
+          .insert({ note: weeklyNote.trim(), created_by: user.id })
+          .select()
+          .single();
+        if (data) setExistingNoteId(data.id);
+      }
+      setNoteSaved(true);
+      setTimeout(() => setNoteSaved(false), 2000);
+    } catch (err) {
+      alert("Failed to save note.");
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
   useEffect(() => {
     if (justAddedAt) {
       const timer = setTimeout(() => setJustAddedAt(null), 2000);
@@ -74,7 +123,6 @@ export default function Admin() {
     });
 
     if (!error) {
-      // Reset form
       setName("");
       setGigDate("");
       setVenueName("");
@@ -94,7 +142,10 @@ export default function Admin() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this gig?")) return;
-    const { error } = await supabase.from("curated_gigs").delete().eq("id", id);
+    const { error } = await supabase
+      .from("curated_gigs")
+      .delete()
+      .eq("id", id);
     if (!error) {
       await loadCuratedGigs();
     }
@@ -121,10 +172,7 @@ export default function Admin() {
         className="min-h-screen flex flex-col items-center justify-center p-6"
         style={{ backgroundColor: "#0A0A0A" }}
       >
-        <p
-          className="font-black text-[48px] mb-2"
-          style={{ color: "#FAFAFA" }}
-        >
+        <p className="font-black text-[48px] mb-2" style={{ color: "#FAFAFA" }}>
           404
         </p>
         <p style={{ color: "#525252" }}>Page not found.</p>
@@ -146,10 +194,7 @@ export default function Admin() {
   const canSubmit = name.trim() && gigDate && venueName.trim() && !submitting;
 
   return (
-    <main
-      className="min-h-screen text-white"
-      style={{ backgroundColor: "#0A0A0A" }}
-    >
+    <main className="min-h-screen text-white" style={{ backgroundColor: "#0A0A0A" }}>
       {/* ================ HEADER ================ */}
       <div className="px-6 pt-12 pb-6">
         <p
@@ -169,7 +214,58 @@ export default function Admin() {
         </p>
       </div>
 
-      {/* ================ ADD FORM ================ */}
+      {/* ================ WEEKLY NOTE ================ */}
+      <div className="px-6 pb-8">
+        <div
+          className="rounded-2xl p-5"
+          style={{ backgroundColor: "#171717", border: "1px solid #262626" }}
+        >
+          <label
+            className="text-[11px] font-semibold uppercase tracking-[0.1em] block mb-3"
+            style={{ color: "#FF0033" }}
+          >
+            This week in Naarm
+          </label>
+          <textarea
+            value={weeklyNote}
+            onChange={(e) => setWeeklyNote(e.target.value)}
+            placeholder="Big week in the inner north. Baker Boy at Northcote Theatre is the one to watch..."
+            rows={3}
+            className="w-full text-[15px] rounded-xl px-4 py-3 focus:outline-none resize-none"
+            style={{
+              backgroundColor: "#0A0A0A",
+              border: "1px solid #262626",
+              color: "#FAFAFA",
+            }}
+          />
+          <div className="flex items-center justify-between mt-3">
+            <p className="text-[11px]" style={{ color: "#525252" }}>
+              {weeklyNote.length}/300 · Shows at the top of the gig list
+            </p>
+            <button
+              onClick={saveWeeklyNote}
+              disabled={savingNote || !weeklyNote.trim()}
+              className="font-bold text-[12px] uppercase tracking-wider px-4 py-2 rounded-full transition-colors"
+              style={{
+                backgroundColor: noteSaved
+                  ? "#262626"
+                  : !weeklyNote.trim()
+                  ? "#262626"
+                  : "#FF0033",
+                color: noteSaved
+                  ? "#A3A3A3"
+                  : !weeklyNote.trim()
+                  ? "#525252"
+                  : "#FFFFFF",
+              }}
+            >
+              {noteSaved ? "SAVED ✓" : savingNote ? "SAVING..." : "SAVE NOTE"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ================ ADD GIG FORM ================ */}
       <div className="px-6 pb-10 space-y-4">
         {/* Gig name */}
         <div>
@@ -193,7 +289,7 @@ export default function Admin() {
           />
         </div>
 
-        {/* Artist name (for mixtape matching) */}
+        {/* Artist name */}
         <div>
           <label
             className="text-[11px] font-semibold uppercase tracking-[0.1em] block mb-2"
@@ -262,7 +358,7 @@ export default function Admin() {
           />
         </div>
 
-        {/* Venue address (optional) */}
+        {/* Venue address */}
         <div>
           <label
             className="text-[11px] font-semibold uppercase tracking-[0.1em] block mb-2"
@@ -310,7 +406,7 @@ export default function Admin() {
           />
         </div>
 
-        {/* YouTube Video ID (for manual mixtape override) */}
+        {/* YouTube Video ID */}
         <div>
           <label
             className="text-[11px] font-semibold uppercase tracking-[0.1em] block mb-2"
@@ -364,7 +460,7 @@ export default function Admin() {
           />
         </div>
 
-        {/* Description (optional) */}
+        {/* Notes */}
         <div>
           <label
             className="text-[11px] font-semibold uppercase tracking-[0.1em] block mb-2"
@@ -392,20 +488,10 @@ export default function Admin() {
           disabled={!canSubmit}
           className="w-full font-extrabold text-[15px] rounded-full py-4 tracking-wide transition-colors flex items-center justify-center gap-2 mt-2"
           style={{
-            backgroundColor: justAddedAt
-              ? "#262626"
-              : !canSubmit
-              ? "#262626"
-              : "#FF0033",
-            color: justAddedAt
-              ? "#A3A3A3"
-              : !canSubmit
-              ? "#525252"
-              : "#FFFFFF",
+            backgroundColor: justAddedAt ? "#262626" : !canSubmit ? "#262626" : "#FF0033",
+            color: justAddedAt ? "#A3A3A3" : !canSubmit ? "#525252" : "#FFFFFF",
             boxShadow:
-              !canSubmit || justAddedAt
-                ? "none"
-                : "0 8px 32px rgba(255, 0, 51, 0.25)",
+              !canSubmit || justAddedAt ? "none" : "0 8px 32px rgba(255, 0, 51, 0.25)",
             cursor: canSubmit ? "pointer" : "not-allowed",
           }}
         >
@@ -428,7 +514,7 @@ export default function Admin() {
         </button>
       </div>
 
-      {/* ================ EXISTING CURATED GIGS LIST ================ */}
+      {/* ================ CURATED GIGS LIST ================ */}
       <div className="px-6 pb-20">
         <h2
           className="font-black tracking-[-0.02em] leading-[1.05] mb-4"
@@ -442,10 +528,7 @@ export default function Admin() {
         ) : curatedGigs.length === 0 ? (
           <div
             className="rounded-2xl p-6 text-center"
-            style={{
-              backgroundColor: "#171717",
-              border: "1px dashed #262626",
-            }}
+            style={{ backgroundColor: "#171717", border: "1px dashed #262626" }}
           >
             <p className="text-[14px]" style={{ color: "#A3A3A3" }}>
               No curated gigs yet. Add the first one above.
@@ -457,10 +540,7 @@ export default function Admin() {
               <div
                 key={gig.id}
                 className="rounded-xl p-4"
-                style={{
-                  backgroundColor: "#171717",
-                  border: "1px solid #262626",
-                }}
+                style={{ backgroundColor: "#171717", border: "1px solid #262626" }}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
@@ -476,10 +556,11 @@ export default function Admin() {
                     >
                       <span className="flex items-center gap-1">
                         <Calendar size={12} />
-                        {new Date(gig.gig_date + "T00:00:00").toLocaleDateString(
-                          "en-AU",
-                          { weekday: "short", day: "numeric", month: "short" }
-                        )}
+                        {new Date(gig.gig_date + "T00:00:00").toLocaleDateString("en-AU", {
+                          weekday: "short",
+                          day: "numeric",
+                          month: "short",
+                        })}
                       </span>
                       <span className="flex items-center gap-1">
                         <MapPin size={12} />
@@ -498,7 +579,6 @@ export default function Admin() {
                         </a>
                       )}
                     </div>
-                    {/* Show artist name and YT video ID if set */}
                     {(gig.artist_name || gig.youtube_video_id) && (
                       <div
                         className="flex items-center gap-3 mt-1.5 text-[11px]"
@@ -510,9 +590,7 @@ export default function Admin() {
                             {gig.artist_name}
                           </span>
                         )}
-                        {gig.youtube_video_id && (
-                          <span>YT: {gig.youtube_video_id}</span>
-                        )}
+                        {gig.youtube_video_id && <span>YT: {gig.youtube_video_id}</span>}
                       </div>
                     )}
                   </div>

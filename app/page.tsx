@@ -113,6 +113,7 @@ export default function Home() {
     totalArtists: number;
     missed: string[];
   } | null>(null);
+  const [weeklyNote, setWeeklyNote] = useState<string | null>(null);
 
   const [user, setUser] = useState<any>(null);
   const [rsvps, setRsvps] = useState<Set<string>>(new Set());
@@ -247,7 +248,7 @@ export default function Home() {
     const { from, to } = getDateRange();
 
     try {
-      const [tmResponse, curatedResponse, hiddenResponse] = await Promise.all([
+      const [tmResponse, curatedResponse, hiddenResponse, noteResponse] = await Promise.all([
         fetch(`/api/gigs?from=${from}&to=${to}`),
         supabase
           .from("curated_gigs")
@@ -258,6 +259,11 @@ export default function Home() {
           .from("hidden_events")
           .select("event_id")
           .eq("hidden_by", ADMIN_USER_ID),
+        supabase
+          .from("weekly_notes")
+          .select("note")
+          .order("created_at", { ascending: false })
+          .limit(1),
       ]);
 
       const tmData = await tmResponse.json();
@@ -266,6 +272,11 @@ export default function Home() {
       const hiddenIds = new Set(
         (hiddenResponse.data || []).map((h: any) => h.event_id)
       );
+
+      // Set editorial note
+      if (noteResponse.data && noteResponse.data.length > 0) {
+        setWeeklyNote(noteResponse.data[0].note);
+      }
 
       const curatedReshaped = curatedRaw.map(curatedGigToTicketmasterShape);
 
@@ -446,7 +457,7 @@ export default function Home() {
         )}
 
         {/* ================ HEADER ================ */}
-        <div className="px-6 pt-12 pb-6">
+        <div className="px-6 pt-12 pb-2">
           <p
             className="text-[11px] font-semibold uppercase tracking-[0.15em] mb-3"
             style={{ color: "#525252" }}
@@ -461,6 +472,18 @@ export default function Home() {
             NAARM
           </h1>
         </div>
+
+        {/* ================ EDITORIAL BANNER ================ */}
+        {weeklyNote && (
+          <div className="px-6 pt-4 pb-2">
+            <p
+              className="text-[15px] leading-[1.5] italic"
+              style={{ color: "#A3A3A3" }}
+            >
+              "{weeklyNote}"
+            </p>
+          </div>
+        )}
 
         {/* ================ STICKY MIXTAPE BAR ================ */}
         <div
@@ -486,12 +509,16 @@ export default function Home() {
               >
                 OPEN IN YOUTUBE MUSIC ↗
               </a>
-              {mixtapeStats && (
+              {/* Admin-only debug stats */}
+              {isAdmin && mixtapeStats && (
                 <p
                   className="text-center text-[11px] mt-2 font-semibold"
                   style={{ color: "#525252" }}
                 >
                   {mixtapeStats.tracksAdded} of {mixtapeStats.totalArtists} artists matched
+                  {mixtapeStats.missed.length > 0 && (
+                    <span> · Missed: {mixtapeStats.missed.join(", ")}</span>
+                  )}
                 </p>
               )}
             </div>
@@ -671,7 +698,7 @@ export default function Home() {
   }
 
   // ==========================================================================
-  // LANDING VIEW — simplified, no date picker
+  // LANDING VIEW
   // ==========================================================================
 
   return (
@@ -680,7 +707,6 @@ export default function Home() {
       style={{ backgroundColor: "#0A0A0A" }}
     >
       <div className="max-w-md w-full space-y-12">
-        {/* Wordmark + tagline */}
         <div className="text-center space-y-3">
           <h1
             className="font-black tracking-[-0.04em] leading-[0.9]"
@@ -704,7 +730,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* Location + Find Gigs */}
         <div className="space-y-4">
           <div className="space-y-1.5">
             <label
@@ -740,7 +765,6 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Footer */}
         <div className="text-center pt-4">
           <a
             href="/privacy"
