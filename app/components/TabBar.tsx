@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Home, MessageCircle, User } from "lucide-react";
+import { Home, MessageCircle, BookOpen, User } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 /**
  * Persistent bottom tab bar shown on the main app screens.
+ *
+ * Tabs: GIGS / MESSAGES / SCRAPBOOK / PROFILE
  *
  * Visibility rules:
  * - Hidden on /auth (logged-out users)
@@ -95,6 +97,12 @@ export default function TabBar() {
       icon: MessageCircle,
       match: (p: string) => p.startsWith("/messages"),
       showDot: hasUnread,
+    },
+    {
+      href: "/scrapbook",
+      label: "Scrapbook",
+      icon: BookOpen,
+      match: (p: string) => p.startsWith("/scrapbook"),
     },
     {
       href: "/profile",

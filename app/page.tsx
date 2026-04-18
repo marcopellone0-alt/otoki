@@ -158,18 +158,47 @@ export default function Home() {
     }
     const gigId = gig.id;
     if (rsvps.has(gigId)) {
+      // Un-RSVP: delete gig_rsvps row. The ON DELETE CASCADE on scrapbook_entries.rsvp_id
+      // will automatically remove the corresponding scrapbook entry.
       await supabase.from("gig_rsvps").delete().match({ user_id: user.id, gig_id: gigId });
       rsvps.delete(gigId);
       setRsvps(new Set(rsvps));
       setRsvpCounts((prev) => ({ ...prev, [gigId]: (prev[gigId] || 1) - 1 }));
     } else {
-      await supabase.from("gig_rsvps").insert({
-        user_id: user.id,
-        gig_id: gigId,
-        gig_name: gig.name,
-        gig_date: gig.dates?.start?.localDate || null,
-        venue_name: gig._embedded?.venues?.[0]?.name || null,
-      });
+      // RSVP: insert gig_rsvps row, then auto-create a placeholder scrapbook entry
+      // linked to it. The .select().single() chain returns the new row so we can
+      // reference its id.
+      const { data: rsvpData, error: rsvpError } = await supabase
+        .from("gig_rsvps")
+        .insert({
+          user_id: user.id,
+          gig_id: gigId,
+          gig_name: gig.name,
+          gig_date: gig.dates?.start?.localDate || null,
+          venue_name: gig._embedded?.venues?.[0]?.name || null,
+        })
+        .select()
+        .single();
+
+      if (!rsvpError && rsvpData) {
+        // Fire and forget. If this fails the RSVP still succeeded; the user
+        // just won't have a scrapbook entry auto-created. Safe failure mode.
+        supabase
+          .from("scrapbook_entries")
+          .insert({
+            user_id: user.id,
+            rsvp_id: rsvpData.id,
+            gig_id: gigId,
+            gig_name: gig.name,
+            gig_date: gig.dates?.start?.localDate || null,
+            venue_name: gig._embedded?.venues?.[0]?.name || null,
+            visibility: "friends",
+          })
+          .then(({ error }) => {
+            if (error) console.error("Failed to create scrapbook entry:", error);
+          });
+      }
+
       rsvps.add(gigId);
       setRsvps(new Set(rsvps));
       setRsvpCounts((prev) => ({ ...prev, [gigId]: (prev[gigId] || 0) + 1 }));
