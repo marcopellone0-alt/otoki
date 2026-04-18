@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Entry = {
@@ -10,7 +10,14 @@ type Entry = {
   venue_name: string | null;
   memory: string | null;
   visibility: "public" | "friends" | "private";
-  photos: string[]; // ordered by position asc, max 6
+  photos: string[];
+};
+
+type Chapter = {
+  key: string; // "2026-04"
+  label: string; // "April 2026"
+  year: number;
+  entries: Entry[];
 };
 
 const FONT_STACK_SERIF =
@@ -19,6 +26,11 @@ const FONT_STACK_SERIF =
 export default function ScrapbookPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showYearJumper, setShowYearJumper] = useState(false);
+
+  // Refs keyed by year ("2026") to the first chapter heading of that year,
+  // so the year-jumper can scroll to it.
+  const yearRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     const load = async () => {
@@ -86,6 +98,44 @@ export default function ScrapbookPage() {
     load();
   }, []);
 
+  // Group entries into month chapters, newest first.
+  const chapters = useMemo<Chapter[]>(() => {
+    const byMonth = new Map<string, Chapter>();
+
+    entries.forEach((entry) => {
+      if (!entry.gig_date) return;
+      const date = new Date(entry.gig_date);
+      const year = date.getFullYear();
+      const monthIdx = date.getMonth();
+      const key = `${year}-${String(monthIdx + 1).padStart(2, "0")}`;
+      const label = date.toLocaleDateString("en-AU", {
+        month: "long",
+        year: "numeric",
+      });
+
+      if (!byMonth.has(key)) {
+        byMonth.set(key, { key, label, year, entries: [] });
+      }
+      byMonth.get(key)!.entries.push(entry);
+    });
+
+    return Array.from(byMonth.values()).sort((a, b) =>
+      b.key.localeCompare(a.key)
+    );
+  }, [entries]);
+
+  // Extract unique years (newest first) and determine whether year-jumper appears.
+  const years = useMemo(() => {
+    const set = new Set<number>();
+    chapters.forEach((c) => set.add(c.year));
+    return Array.from(set).sort((a, b) => b - a);
+  }, [chapters]);
+
+  useEffect(() => {
+    // Only show the jumper when content spans 2+ years.
+    setShowYearJumper(years.length >= 2);
+  }, [years]);
+
   const formatDateLine = (d: string | null, venue: string | null) => {
     const parts: string[] = [];
     if (d) {
@@ -102,45 +152,14 @@ export default function ScrapbookPage() {
     return parts.join(" · ");
   };
 
-  const headerSummary = () => {
-    if (entries.length === 0) return { count: 0, range: "" };
-    const dates = entries
-      .map((e) => e.gig_date)
-      .filter((d): d is string => !!d)
-      .map((d) => new Date(d));
-
-    if (dates.length === 0) return { count: entries.length, range: "" };
-
-    const earliest = new Date(Math.min(...dates.map((d) => d.getTime())));
-    const latest = new Date(Math.max(...dates.map((d) => d.getTime())));
-
-    const sameMonth =
-      earliest.getMonth() === latest.getMonth() &&
-      earliest.getFullYear() === latest.getFullYear();
-    const sameYear = earliest.getFullYear() === latest.getFullYear();
-
-    if (sameMonth) {
-      return {
-        count: entries.length,
-        range: `from ${latest.toLocaleDateString("en-AU", {
-          month: "long",
-          year: "numeric",
-        })}.`,
-      };
+  const jumpToYear = (year: number) => {
+    const el = yearRefs.current[String(year)];
+    if (el) {
+      // Small negative offset accounts for the sticky header's own height.
+      const y = el.getBoundingClientRect().top + window.scrollY - 8;
+      window.scrollTo({ top: y, behavior: "smooth" });
     }
-    if (sameYear) {
-      return {
-        count: entries.length,
-        range: `across ${latest.getFullYear()}.`,
-      };
-    }
-    return {
-      count: entries.length,
-      range: `across ${earliest.getFullYear()}–${latest.getFullYear()}.`,
-    };
   };
-
-  const summary = headerSummary();
 
   return (
     <main
@@ -148,51 +167,25 @@ export default function ScrapbookPage() {
       style={{ backgroundColor: "#0A0A0A", color: "#FAFAFA" }}
     >
       <div className="max-w-md mx-auto px-6 pt-12 pb-24">
-        {/* Scrapbook header */}
-        <div style={{ marginBottom: "40px" }}>
-          <p
-            className="text-[10px] font-semibold tracking-[0.15em] uppercase"
-            style={{ color: "#525252", marginBottom: "4px" }}
+        {/* Header — no counts */}
+        <div style={{ marginBottom: "32px" }}>
+          <h1
+            className="font-black tracking-tighter leading-none"
+            style={{ fontSize: "32px", color: "#FAFAFA" }}
           >
-            Scrapbook
+            SCRAPBOOK
+          </h1>
+          <p
+            className="text-sm"
+            style={{ color: "#A3A3A3", marginTop: "6px" }}
+          >
+            Your gigs, remembered.
           </p>
-          {loading ? (
-            <h1
-              className="font-medium tracking-tight leading-none"
-              style={{ fontSize: "32px", color: "#FAFAFA" }}
-            >
-              Loading…
-            </h1>
-          ) : summary.count === 0 ? (
-            <h1
-              className="font-medium tracking-tight leading-none"
-              style={{ fontSize: "32px", color: "#FAFAFA" }}
-            >
-              Your gigs,
-              <br />
-              remembered.
-            </h1>
-          ) : (
-            <>
-              <h1
-                className="font-medium tracking-tight leading-none"
-                style={{ fontSize: "32px", color: "#FAFAFA" }}
-              >
-                {summary.count} {summary.count === 1 ? "gig" : "gigs"}
-              </h1>
-              {summary.range && (
-                <p
-                  className="text-sm"
-                  style={{ color: "#A3A3A3", marginTop: "4px" }}
-                >
-                  {summary.range}
-                </p>
-              )}
-            </>
-          )}
         </div>
 
-        {!loading && entries.length === 0 && (
+        {loading ? (
+          <p style={{ color: "#525252" }}>Loading…</p>
+        ) : entries.length === 0 ? (
           <div
             className="rounded-2xl p-8 text-center"
             style={{
@@ -215,18 +208,102 @@ export default function ScrapbookPage() {
               Find a gig
             </a>
           </div>
-        )}
+        ) : (
+          chapters.map((chapter, chapterIndex) => {
+            // Is this chapter the first of its year? If so, attach the
+            // year ref so the year-jumper can target it.
+            const prevChapter = chapters[chapterIndex - 1];
+            const isFirstOfYear =
+              !prevChapter || prevChapter.year !== chapter.year;
 
-        {!loading &&
-          entries.map((entry, i) => (
-            <EntryBlock
-              key={entry.id}
-              entry={entry}
-              formatDateLine={formatDateLine}
-              isFirst={i === 0}
-            />
-          ))}
+            return (
+              <section key={chapter.key} style={{ marginBottom: "24px" }}>
+                <div
+                  ref={(el) => {
+                    if (isFirstOfYear) {
+                      yearRefs.current[String(chapter.year)] = el;
+                    }
+                  }}
+                  style={{
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 10,
+                    // Solid background so content scrolling underneath doesn't
+                    // bleed through. Safari handles sticky reliably with this.
+                    backgroundColor: "#0A0A0A",
+                    paddingTop: "16px",
+                    paddingBottom: "12px",
+                    marginBottom: "16px",
+                    // Stretch behind the outer padding so the sticky bar
+                    // covers the full viewport width, not just the centered column.
+                    marginLeft: "-24px",
+                    marginRight: "-24px",
+                    paddingLeft: "24px",
+                    paddingRight: "24px",
+                    borderBottom: "0.5px solid #262626",
+                  }}
+                >
+                  <p
+                    className="text-[11px] font-semibold tracking-[0.15em] uppercase"
+                    style={{ color: "#A3A3A3", margin: 0 }}
+                  >
+                    {chapter.label}
+                  </p>
+                </div>
+
+                {chapter.entries.map((entry, entryIndex) => (
+                  <EntryBlock
+                    key={entry.id}
+                    entry={entry}
+                    formatDateLine={formatDateLine}
+                    isFirstInChapter={entryIndex === 0}
+                  />
+                ))}
+              </section>
+            );
+          })
+        )}
       </div>
+
+      {/* Year jumper — only rendered when entries span multiple years */}
+      {showYearJumper && !loading && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "88px", // sits above tab bar
+            right: "16px",
+            zIndex: 30,
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+            padding: "6px",
+            borderRadius: "999px",
+            backgroundColor: "rgba(23, 23, 23, 0.9)",
+            backdropFilter: "blur(12px)",
+            border: "0.5px solid #262626",
+          }}
+        >
+          {years.map((year) => (
+            <button
+              key={year}
+              onClick={() => jumpToYear(year)}
+              style={{
+                padding: "6px 10px",
+                borderRadius: "999px",
+                backgroundColor: "transparent",
+                color: "#A3A3A3",
+                fontSize: "11px",
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              {year}
+            </button>
+          ))}
+        </div>
+      )}
     </main>
   );
 }
@@ -234,23 +311,24 @@ export default function ScrapbookPage() {
 function EntryBlock({
   entry,
   formatDateLine,
-  isFirst,
+  isFirstInChapter,
 }: {
   entry: Entry;
   formatDateLine: (d: string | null, v: string | null) => string;
-  isFirst: boolean;
+  isFirstInChapter: boolean;
 }) {
+  const hasPhotos = entry.photos.length > 0;
+
   return (
     <a
       href={`/scrapbook/${entry.id}`}
       className="block"
       style={{
-        marginBottom: "48px",
-        paddingTop: isFirst ? 0 : "32px",
-        borderTop: isFirst ? "none" : "0.5px solid #262626",
+        marginBottom: "40px",
+        paddingTop: isFirstInChapter ? 0 : "24px",
+        borderTop: isFirstInChapter ? "none" : "0.5px solid #262626",
       }}
     >
-      {/* Date + venue label */}
       <p
         className="text-[10px] font-semibold tracking-[0.15em] uppercase"
         style={{ color: "#525252", marginBottom: "4px" }}
@@ -258,7 +336,6 @@ function EntryBlock({
         {formatDateLine(entry.gig_date, entry.venue_name) || "Date unknown"}
       </p>
 
-      {/* Gig title */}
       <h2
         className="font-medium tracking-tight"
         style={{
@@ -266,21 +343,19 @@ function EntryBlock({
           color: "#FAFAFA",
           lineHeight: "1.15",
           letterSpacing: "-0.015em",
-          marginBottom: "16px",
+          marginBottom: hasPhotos ? "16px" : "12px",
         }}
       >
         {entry.gig_name || "Untitled gig"}
       </h2>
 
-      {/* Photos — explicit bottom margin on the wrapper, not inside PhotoLayout */}
-      {entry.photos.length > 0 && (
-        <div style={{ marginBottom: "20px" }}>
-          <PhotoLayout photos={entry.photos} />
-        </div>
-      )}
+      {/*
+        Photo grid — marginBottom is baked onto the grid element itself, no
+        wrapper div. Previous wrapper was collapsing and causing the memory
+        text to overlap the photos on mobile.
+      */}
+      {hasPhotos && <PhotoLayout photos={entry.photos} />}
 
-      {/* Memory — forced top margin ensures separation from photos even if
-          the parent flow tries to collapse. */}
       {entry.memory ? (
         <p
           style={{
@@ -289,7 +364,6 @@ function EntryBlock({
             color: "#D4D4D4",
             lineHeight: "1.6",
             margin: 0,
-            marginTop: entry.photos.length > 0 ? "4px" : 0,
           }}
         >
           {entry.memory}
@@ -306,12 +380,9 @@ function EntryBlock({
   );
 }
 
-/**
- * Composition varies by photo count — see comments inside.
- * This function now only renders the photo grid itself; the parent is
- * responsible for bottom margin.
- */
 function PhotoLayout({ photos }: { photos: string[] }) {
+  const SPACING = "24px";
+
   const img = (src: string) => (
     <img
       src={src}
@@ -327,7 +398,11 @@ function PhotoLayout({ photos }: { photos: string[] }) {
   );
 
   if (photos.length === 1) {
-    return <div style={{ height: "220px" }}>{img(photos[0])}</div>;
+    return (
+      <div style={{ height: "220px", marginBottom: SPACING }}>
+        {img(photos[0])}
+      </div>
+    );
   }
 
   if (photos.length === 2) {
@@ -338,6 +413,7 @@ function PhotoLayout({ photos }: { photos: string[] }) {
           gridTemplateColumns: "1fr 1fr",
           gap: "6px",
           height: "160px",
+          marginBottom: SPACING,
         }}
       >
         <div>{img(photos[0])}</div>
@@ -348,7 +424,7 @@ function PhotoLayout({ photos }: { photos: string[] }) {
 
   if (photos.length === 3) {
     return (
-      <div>
+      <div style={{ marginBottom: SPACING }}>
         <div style={{ height: "200px", marginBottom: "6px" }}>
           {img(photos[0])}
         </div>
@@ -357,7 +433,7 @@ function PhotoLayout({ photos }: { photos: string[] }) {
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
             gap: "6px",
-            height: "110px",
+            height: "140px",
           }}
         >
           <div>{img(photos[1])}</div>
@@ -376,6 +452,7 @@ function PhotoLayout({ photos }: { photos: string[] }) {
           gridTemplateRows: "1fr 1fr",
           gap: "6px",
           height: "300px",
+          marginBottom: SPACING,
         }}
       >
         {photos.map((p, i) => (
@@ -387,7 +464,7 @@ function PhotoLayout({ photos }: { photos: string[] }) {
 
   if (photos.length === 5) {
     return (
-      <div>
+      <div style={{ marginBottom: SPACING }}>
         <div style={{ height: "200px", marginBottom: "6px" }}>
           {img(photos[0])}
         </div>
@@ -427,6 +504,7 @@ function PhotoLayout({ photos }: { photos: string[] }) {
         gridTemplateRows: "1fr 1fr",
         gap: "6px",
         height: "220px",
+        marginBottom: SPACING,
       }}
     >
       {photos.slice(0, 6).map((p, i) => (
