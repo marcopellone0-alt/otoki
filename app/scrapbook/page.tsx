@@ -20,20 +20,40 @@ export default function ScrapbookPage() {
     const load = async () => {
       const {
         data: { user },
+        error: authError,
       } = await supabase.auth.getUser();
+
+      if (authError) console.error("[scrapbook] auth error:", authError);
 
       if (!user) {
         window.location.href = "/auth";
         return;
       }
 
+      // Show only gigs that have already happened.
+      // A gig on today's date is still "upcoming" until tomorrow morning,
+      // which lines up with the planned "How was last night?" nudge.
+      const today = new Date().toISOString().split("T")[0];
+
       const { data, error } = await supabase
         .from("scrapbook_entries")
         .select("id, gig_name, gig_date, venue_name, memory, visibility")
         .eq("user_id", user.id)
+        .lt("gig_date", today)
         .order("gig_date", { ascending: false, nullsFirst: false });
 
-      if (!error && data) setEntries(data as Entry[]);
+      console.log("[scrapbook] loaded", {
+        userId: user.id,
+        today,
+        count: data?.length,
+        error,
+      });
+
+      if (error) {
+        console.error("[scrapbook] query error:", error);
+      }
+
+      if (data) setEntries(data as Entry[]);
       setLoading(false);
     };
     load();
@@ -57,11 +77,8 @@ export default function ScrapbookPage() {
       <div className="max-w-md mx-auto px-6 pt-12 pb-24">
         <div className="mb-8">
           <h1 className="text-3xl font-black tracking-tighter">SCRAPBOOK</h1>
-          <p
-            className="text-sm mt-1"
-            style={{ color: "#A3A3A3" }}
-          >
-            Your gigs, captured.
+          <p className="text-sm mt-1" style={{ color: "#A3A3A3" }}>
+            Your gigs, remembered.
           </p>
         </div>
 
@@ -79,12 +96,11 @@ export default function ScrapbookPage() {
               className="font-semibold mb-2"
               style={{ color: "#FAFAFA" }}
             >
-              No gigs yet.
+              Nothing to remember yet.
             </p>
             <p className="text-sm" style={{ color: "#A3A3A3" }}>
-              RSVP to a gig and it'll show up here. Add a memory, tag the
-              people you went with, and build your own scrapbook of Naarm's
-              scene.
+              Your scrapbook fills up after you go to gigs. RSVP to something,
+              show up, and it'll land here the morning after.
             </p>
             <a
               href="/"
