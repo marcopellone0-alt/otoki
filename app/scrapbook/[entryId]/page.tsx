@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+import PhotoUploader from "../../components/PhotoUploader";
 
 type Entry = {
   id: string;
@@ -16,6 +17,20 @@ type Entry = {
 
 const MEMORY_MAX = 280;
 
+const FONT_STACK_SERIF =
+  "var(--font-serif), Georgia, 'Times New Roman', serif";
+
+const MEMORY_PROMPTS = [
+  "What do you want to remember about this gig?",
+  "What was the moment you knew this was going to be a good one?",
+  "Who was with you, and what made them the right person for this show?",
+  "What did the crowd feel like?",
+  "What's the song you'll hear in 10 years and be taken straight back?",
+  "Describe the walk home.",
+  "What surprised you about the night?",
+  "If you could tell someone one thing about this gig, what would it be?",
+];
+
 export default function ScrapbookEntryPage() {
   const params = useParams();
   const entryId = params.entryId as string;
@@ -24,6 +39,9 @@ export default function ScrapbookEntryPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
+  const [promptIndex] = useState(() =>
+    Math.floor(Math.random() * MEMORY_PROMPTS.length)
+  );
 
   const [memory, setMemory] = useState("");
   const [visibility, setVisibility] =
@@ -86,15 +104,22 @@ export default function ScrapbookEntryPage() {
     }
   };
 
-  const formatDate = (d: string | null) => {
-    if (!d) return "Date unknown";
-    const date = new Date(d);
-    return date.toLocaleDateString("en-AU", {
-      weekday: "long",
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-    });
+  const dateVenueLine = () => {
+    if (!entry) return "";
+    const parts: string[] = [];
+    if (entry.gig_date) {
+      const date = new Date(entry.gig_date);
+      parts.push(
+        date.toLocaleDateString("en-AU", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      );
+    }
+    if (entry.venue_name) parts.push(entry.venue_name);
+    return parts.join(" · ");
   };
 
   if (loading) {
@@ -139,7 +164,7 @@ export default function ScrapbookEntryPage() {
       className="min-h-screen"
       style={{ backgroundColor: "#0A0A0A", color: "#FAFAFA" }}
     >
-      <div className="max-w-md mx-auto px-6 pt-12 pb-24">
+      <div className="max-w-md mx-auto px-6 pt-8 pb-24">
         <a
           href="/scrapbook"
           className="text-sm"
@@ -148,28 +173,39 @@ export default function ScrapbookEntryPage() {
           ← Back to scrapbook
         </a>
 
-        <div className="mt-6 mb-8">
-          <h1 className="text-2xl font-black tracking-tighter leading-tight">
-            {entry.gig_name || "Untitled gig"}
-          </h1>
-          {entry.venue_name && (
-            <p className="text-sm mt-1" style={{ color: "#A3A3A3" }}>
-              {entry.venue_name}
-            </p>
-          )}
+        {/* Headline block */}
+        <div className="mt-8 mb-8">
           <p
-            className="text-[11px] font-semibold tracking-wider uppercase mt-1"
+            className="text-[10px] font-semibold tracking-[0.15em] uppercase mb-2"
             style={{ color: "#525252" }}
           >
-            {formatDate(entry.gig_date)}
+            {dateVenueLine()}
           </p>
+          <h1
+            className="font-medium tracking-tight"
+            style={{
+              fontSize: "34px",
+              color: "#FAFAFA",
+              lineHeight: "1",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            {entry.gig_name || "Untitled gig"}
+          </h1>
         </div>
+
+        {/* Photos (uploader for owner, read-only row for viewer) */}
+        <PhotoUploader
+          entryId={entry.id}
+          userId={entry.user_id}
+          canEdit={isOwner}
+        />
 
         {isOwner ? (
           <>
             <div className="mb-6">
               <label
-                className="block text-[11px] font-semibold tracking-wider uppercase mb-2"
+                className="block text-[10px] font-semibold tracking-[0.15em] uppercase mb-2"
                 style={{ color: "#A3A3A3" }}
               >
                 Memory
@@ -179,13 +215,16 @@ export default function ScrapbookEntryPage() {
                 onChange={(e) =>
                   setMemory(e.target.value.slice(0, MEMORY_MAX))
                 }
-                placeholder="What do you want to remember about this gig?"
+                placeholder={MEMORY_PROMPTS[promptIndex]}
                 rows={5}
-                className="w-full rounded-xl p-4 text-sm resize-none focus:outline-none"
+                className="w-full rounded-xl p-4 resize-none focus:outline-none"
                 style={{
                   backgroundColor: "#171717",
                   border: "1px solid #262626",
                   color: "#FAFAFA",
+                  fontFamily: FONT_STACK_SERIF,
+                  fontSize: "17px",
+                  lineHeight: "1.6",
                 }}
               />
               <p
@@ -200,7 +239,7 @@ export default function ScrapbookEntryPage() {
 
             <div className="mb-8">
               <label
-                className="block text-[11px] font-semibold tracking-wider uppercase mb-2"
+                className="block text-[10px] font-semibold tracking-[0.15em] uppercase mb-2"
                 style={{ color: "#A3A3A3" }}
               >
                 Who can see this
@@ -250,8 +289,14 @@ export default function ScrapbookEntryPage() {
           <>
             {entry.memory ? (
               <p
-                className="text-sm leading-relaxed whitespace-pre-wrap"
-                style={{ color: "#FAFAFA" }}
+                style={{
+                  fontFamily: FONT_STACK_SERIF,
+                  fontSize: "17px",
+                  color: "#FAFAFA",
+                  lineHeight: "1.7",
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                }}
               >
                 {entry.memory}
               </p>
