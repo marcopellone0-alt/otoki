@@ -9,13 +9,13 @@ type Entry = {
   gig_date: string | null;
   venue_name: string | null;
   memory: string | null;
-  visibility: "public" | "friends" | "private";
+  visibility: "public" | "private";
   photos: string[];
 };
 
 type Chapter = {
-  key: string; // "2026-04"
-  label: string; // "April 2026"
+  key: string;
+  label: string;
   year: number;
   entries: Entry[];
 };
@@ -28,8 +28,6 @@ export default function ScrapbookPage() {
   const [loading, setLoading] = useState(true);
   const [showYearJumper, setShowYearJumper] = useState(false);
 
-  // Refs keyed by year ("2026") to the first chapter heading of that year,
-  // so the year-jumper can scroll to it.
   const yearRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
@@ -98,7 +96,6 @@ export default function ScrapbookPage() {
     load();
   }, []);
 
-  // Group entries into month chapters, newest first.
   const chapters = useMemo<Chapter[]>(() => {
     const byMonth = new Map<string, Chapter>();
 
@@ -124,7 +121,6 @@ export default function ScrapbookPage() {
     );
   }, [entries]);
 
-  // Extract unique years (newest first) and determine whether year-jumper appears.
   const years = useMemo(() => {
     const set = new Set<number>();
     chapters.forEach((c) => set.add(c.year));
@@ -132,7 +128,6 @@ export default function ScrapbookPage() {
   }, [chapters]);
 
   useEffect(() => {
-    // Only show the jumper when content spans 2+ years.
     setShowYearJumper(years.length >= 2);
   }, [years]);
 
@@ -155,7 +150,6 @@ export default function ScrapbookPage() {
   const jumpToYear = (year: number) => {
     const el = yearRefs.current[String(year)];
     if (el) {
-      // Small negative offset accounts for the sticky header's own height.
       const y = el.getBoundingClientRect().top + window.scrollY - 8;
       window.scrollTo({ top: y, behavior: "smooth" });
     }
@@ -167,7 +161,6 @@ export default function ScrapbookPage() {
       style={{ backgroundColor: "#0A0A0A", color: "#FAFAFA" }}
     >
       <div className="max-w-md mx-auto px-6 pt-12 pb-24">
-        {/* Header — no counts */}
         <div style={{ marginBottom: "32px" }}>
           <h1
             className="font-black tracking-tighter leading-none"
@@ -210,8 +203,6 @@ export default function ScrapbookPage() {
           </div>
         ) : (
           chapters.map((chapter, chapterIndex) => {
-            // Is this chapter the first of its year? If so, attach the
-            // year ref so the year-jumper can target it.
             const prevChapter = chapters[chapterIndex - 1];
             const isFirstOfYear =
               !prevChapter || prevChapter.year !== chapter.year;
@@ -228,14 +219,10 @@ export default function ScrapbookPage() {
                     position: "sticky",
                     top: 0,
                     zIndex: 10,
-                    // Solid background so content scrolling underneath doesn't
-                    // bleed through. Safari handles sticky reliably with this.
                     backgroundColor: "#0A0A0A",
                     paddingTop: "16px",
                     paddingBottom: "12px",
                     marginBottom: "16px",
-                    // Stretch behind the outer padding so the sticky bar
-                    // covers the full viewport width, not just the centered column.
                     marginLeft: "-24px",
                     marginRight: "-24px",
                     paddingLeft: "24px",
@@ -265,12 +252,11 @@ export default function ScrapbookPage() {
         )}
       </div>
 
-      {/* Year jumper — only rendered when entries span multiple years */}
       {showYearJumper && !loading && (
         <div
           style={{
             position: "fixed",
-            bottom: "88px", // sits above tab bar
+            bottom: "88px",
             right: "16px",
             zIndex: 30,
             display: "flex",
@@ -349,11 +335,6 @@ function EntryBlock({
         {entry.gig_name || "Untitled gig"}
       </h2>
 
-      {/*
-        Photo grid — marginBottom is baked onto the grid element itself, no
-        wrapper div. Previous wrapper was collapsing and causing the memory
-        text to overlap the photos on mobile.
-      */}
       {hasPhotos && <PhotoLayout photos={entry.photos} />}
 
       {entry.memory ? (
@@ -381,7 +362,9 @@ function EntryBlock({
 }
 
 function PhotoLayout({ photos }: { photos: string[] }) {
-  const SPACING = "24px";
+  // Bumped from 24 to 32px — the photos are visually loud and need more
+  // breathing room before the memory text sits below them.
+  const SPACING = "32px";
 
   const img = (src: string) => (
     <img
@@ -495,7 +478,6 @@ function PhotoLayout({ photos }: { photos: string[] }) {
     );
   }
 
-  // 6 photos
   return (
     <div
       style={{

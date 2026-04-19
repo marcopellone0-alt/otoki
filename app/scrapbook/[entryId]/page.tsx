@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 import PhotoUploader from "../../components/PhotoUploader";
+import CompanionTagger from "../../components/CompanionTagger";
 
 type Entry = {
   id: string;
@@ -12,7 +13,7 @@ type Entry = {
   gig_date: string | null;
   venue_name: string | null;
   memory: string | null;
-  visibility: "public" | "friends" | "private";
+  visibility: "public" | "private";
 };
 
 const MEMORY_MAX = 280;
@@ -44,8 +45,7 @@ export default function ScrapbookEntryPage() {
   );
 
   const [memory, setMemory] = useState("");
-  const [visibility, setVisibility] =
-    useState<Entry["visibility"]>("friends");
+  const [visibility, setVisibility] = useState<Entry["visibility"]>("public");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -74,10 +74,19 @@ export default function ScrapbookEntryPage() {
         return;
       }
 
-      setEntry(data as Entry);
-      setIsOwner(user.id === data.user_id);
-      setMemory(data.memory || "");
-      setVisibility(data.visibility || "friends");
+      // Defensive coerce: any legacy 'friends' tier becomes 'public' in the UI.
+      // The backfill SQL flips these in the DB too, but this protects us if a
+      // user opens the page mid-migration.
+      const rawVisibility = (data as any).visibility;
+      const normalisedVisibility: Entry["visibility"] =
+        rawVisibility === "private" ? "private" : "public";
+
+      const normalised: Entry = { ...(data as any), visibility: normalisedVisibility };
+
+      setEntry(normalised);
+      setIsOwner(user.id === normalised.user_id);
+      setMemory(normalised.memory || "");
+      setVisibility(normalised.visibility);
       setLoading(false);
     };
     load();
@@ -101,6 +110,8 @@ export default function ScrapbookEntryPage() {
     if (!error) {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } else {
+      console.error("[entry] save error:", error);
     }
   };
 
@@ -194,10 +205,17 @@ export default function ScrapbookEntryPage() {
           </h1>
         </div>
 
-        {/* Photos (uploader for owner, read-only row for viewer) */}
+        {/* Photos */}
         <PhotoUploader
           entryId={entry.id}
           userId={entry.user_id}
+          canEdit={isOwner}
+        />
+
+        {/* Companions — both edit and read-only modes are handled inside */}
+        <CompanionTagger
+          entryId={entry.id}
+          ownerId={entry.user_id}
           canEdit={isOwner}
         />
 
@@ -245,7 +263,7 @@ export default function ScrapbookEntryPage() {
                 Who can see this
               </label>
               <div className="flex gap-2">
-                {(["public", "friends", "private"] as const).map((v) => (
+                {(["public", "private"] as const).map((v) => (
                   <button
                     key={v}
                     onClick={() => setVisibility(v)}
@@ -266,8 +284,6 @@ export default function ScrapbookEntryPage() {
               >
                 {visibility === "public" &&
                   "Anyone can see this entry on your profile."}
-                {visibility === "friends" &&
-                  "Only people you tag as companions can see it."}
                 {visibility === "private" &&
                   "Only you can see this entry."}
               </p>
