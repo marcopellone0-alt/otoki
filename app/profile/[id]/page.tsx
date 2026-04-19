@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useParams } from "next/navigation";
-import { ArrowLeft, MessageCircle, Pencil } from "lucide-react";
+import { ArrowLeft, MessageCircle, Pencil, LogOut } from "lucide-react";
 import FavouriteSong from "../../components/FavouriteSong";
 import SharedHistoryHero from "../../components/SharedHistoryHero";
 import PublicScrapbookPreview from "../../components/PublicScrapbookPreview";
@@ -44,7 +44,6 @@ export default function PublicProfile() {
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUser(user);
 
-      // No more redirect — own profile is a valid view of this page now.
       const { data: profileData } = await supabase
         .from("profiles")
         .select("*")
@@ -95,7 +94,6 @@ export default function PublicProfile() {
         }
       }
 
-      // Upcoming gigs (this user's RSVPs)
       const { data: rsvpData } = await supabase
         .from("gig_rsvps")
         .select("*")
@@ -105,7 +103,6 @@ export default function PublicProfile() {
 
       setUpcomingGigs(rsvpData || []);
 
-      // Match badges only relevant when viewing someone else's profile.
       if (user && user.id !== userId && rsvpData && rsvpData.length > 0) {
         const gigIds = rsvpData.map((r: any) => r.gig_id);
         const { data: mineData } = await supabase
@@ -120,6 +117,13 @@ export default function PublicProfile() {
     };
     load();
   }, [userId]);
+
+  const handleLogout = async () => {
+    const confirmed = window.confirm("Log out of Otoki?");
+    if (!confirmed) return;
+    await supabase.auth.signOut();
+    window.location.href = "/auth";
+  };
 
   if (loading) {
     return (
@@ -164,7 +168,6 @@ export default function PublicProfile() {
       className="min-h-screen text-white relative"
       style={{ backgroundColor: "#0A0A0A" }}
     >
-      {/* Blurred album art background */}
       {backgroundImage && (
         <div
           className="fixed inset-0 z-0 pointer-events-none"
@@ -203,11 +206,6 @@ export default function PublicProfile() {
             Back to gigs
           </a>
 
-          {/*
-            Shared-history hero — only meaningful when viewing someone else's
-            profile. The component itself also short-circuits on self, but
-            we skip rendering entirely so the spacing is right.
-          */}
           {!isOwnProfile && (
             <SharedHistoryHero
               targetUserId={userId}
@@ -215,7 +213,6 @@ export default function PublicProfile() {
             />
           )}
 
-          {/* Avatar + identity */}
           <div className="flex items-start gap-4 mb-6">
             <div
               className="shrink-0 rounded-full overflow-hidden"
@@ -263,7 +260,6 @@ export default function PublicProfile() {
             </p>
           )}
 
-          {/* CTA: Message (others) or Edit profile (self) */}
           {currentUser && (
             <a
               href={isOwnProfile ? "/profile" : `/messages?to=${userId}`}
@@ -283,7 +279,6 @@ export default function PublicProfile() {
           )}
         </div>
 
-        {/* Favourite song */}
         <FavouriteSong
           url={profile.favourite_song_url}
           artworkUrl={profile.favourite_song_artwork_url}
@@ -291,7 +286,6 @@ export default function PublicProfile() {
           artist={favouriteSongMeta.artist}
         />
 
-        {/* Going to */}
         <div className="px-6 pb-10">
           <h2
             className="font-black tracking-[-0.02em] leading-[1.05] mb-5"
@@ -391,10 +385,8 @@ export default function PublicProfile() {
           )}
         </div>
 
-        {/* Scrapbook preview — now also visible on own profile */}
         <PublicScrapbookPreview ownerId={userId} isOwnProfile={isOwnProfile} />
 
-        {/* Genres + venues */}
         {(profile.favourite_genres?.length > 0 ||
           profile.favourite_venues?.length > 0) && (
           <div
@@ -456,6 +448,30 @@ export default function PublicProfile() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/*
+          Logout — own profile only. Sits at the very bottom in a quiet
+          secondary style. Confirms before logging out so it can't be tapped
+          accidentally on the way to the tab bar.
+        */}
+        {isOwnProfile && (
+          <div className="px-6 pb-12 pt-4">
+            <button
+              onClick={handleLogout}
+              className="inline-flex items-center gap-2 text-[13px] font-medium transition-colors"
+              style={{
+                color: "#A3A3A3",
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+              }}
+            >
+              <LogOut size={14} />
+              Log out
+            </button>
           </div>
         )}
       </div>
