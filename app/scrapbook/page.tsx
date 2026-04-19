@@ -11,6 +11,7 @@ type Entry = {
   memory: string | null;
   visibility: "public" | "private";
   photos: string[];
+  companions: string[]; // resolved display names for the byline
 };
 
 type Chapter = {
@@ -58,7 +59,7 @@ export default function ScrapbookPage() {
         return;
       }
 
-      const list = (entriesData || []) as Omit<Entry, "photos">[];
+      const list = (entriesData || []) as Omit<Entry, "photos" | "companions">[];
 
       if (list.length === 0) {
         setEntries([]);
@@ -66,13 +67,13 @@ export default function ScrapbookPage() {
         return;
       }
 
+      const entryIds = list.map((e) => e.id);
+
+      // Photos in one query.
       const { data: photosData, error: photosError } = await supabase
         .from("scrapbook_photos")
         .select("entry_id, photo_url, position")
-        .in(
-          "entry_id",
-          list.map((e) => e.id)
-        )
+        .in("entry_id", entryIds)
         .order("position", { ascending: true });
 
       if (photosError) {
@@ -85,12 +86,50 @@ export default function ScrapbookPage() {
         photosByEntry.get(p.entry_id)!.push(p.photo_url);
       });
 
-      const withPhotos: Entry[] = list.map((e) => ({
+      // Companions in one query.
+      const { data: companionsData, error: companionsError } = await supabase
+        .from("scrapbook_companions")
+        .select("entry_id, tagged_user_id, tagged_name, created_at")
+        .in("entry_id", entryIds)
+        .order("created_at", { ascending: true });
+
+      if (companionsError) {
+        console.error("[scrapbook] companions query error:", companionsError);
+      }
+
+      // Hydrate display names for any companions linked to a real Otoki user.
+      const userIds = (companionsData || [])
+        .map((c: any) => c.tagged_user_id)
+        .filter((id: string | null): id is string => !!id);
+
+      const profileMap = new Map<string, string>();
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, display_name")
+          .in("id", userIds);
+        (profiles || []).forEach((p: any) => {
+          profileMap.set(p.id, p.display_name || "Someone");
+        });
+      }
+
+      const companionsByEntry = new Map<string, string[]>();
+      (companionsData || []).forEach((c: any) => {
+        const name = c.tagged_user_id
+          ? profileMap.get(c.tagged_user_id) || "Someone"
+          : c.tagged_name || "Someone";
+        if (!companionsByEntry.has(c.entry_id))
+          companionsByEntry.set(c.entry_id, []);
+        companionsByEntry.get(c.entry_id)!.push(name);
+      });
+
+      const withRest: Entry[] = list.map((e) => ({
         ...e,
         photos: photosByEntry.get(e.id) || [],
+        companions: companionsByEntry.get(e.id) || [],
       }));
 
-      setEntries(withPhotos);
+      setEntries(withRest);
       setLoading(false);
     };
     load();
@@ -294,6 +333,21 @@ export default function ScrapbookPage() {
   );
 }
 
+/**
+ * Format a list of companion names into a natural-language byline:
+ *   1 person   → "with Sarah"
+ *   2 people   → "with Sarah and Tom"
+ *   3+ people  → "with Sarah, Tom and Jess"
+ */
+function formatCompanionByline(names: string[]): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return `with ${names[0]}`;
+  if (names.length === 2) return `with ${names[0]} and ${names[1]}`;
+  const last = names[names.length - 1];
+  const rest = names.slice(0, -1).join(", ");
+  return `with ${rest} and ${last}`;
+}
+
 function EntryBlock({
   entry,
   formatDateLine,
@@ -304,6 +358,7 @@ function EntryBlock({
   isFirstInChapter: boolean;
 }) {
   const hasPhotos = entry.photos.length > 0;
+  const hasCompanions = entry.companions.length > 0;
 
   return (
     <a
@@ -337,6 +392,21 @@ function EntryBlock({
 
       {hasPhotos && <PhotoLayout photos={entry.photos} />}
 
+      {hasCompanions && (
+        <p
+          style={{
+            fontFamily: FONT_STACK_SERIF,
+            fontSize: "14px",
+            color: "#A3A3A3",
+            fontStyle: "italic",
+            margin: 0,
+            marginBottom: entry.memory ? "12px" : 0,
+          }}
+        >
+          {formatCompanionByline(entry.companions)}
+        </p>
+      )}
+
       {entry.memory ? (
         <p
           style={{
@@ -350,20 +420,20 @@ function EntryBlock({
           {entry.memory}
         </p>
       ) : (
-        <p
-          className="text-sm italic"
-          style={{ color: "#525252", margin: 0 }}
-        >
-          Add a memory →
-        </p>
+        !hasCompanions && (
+          <p
+            className="text-sm italic"
+            style={{ color: "#525252", margin: 0 }}
+          >
+            Add a memory →
+          </p>
+        )
       )}
     </a>
   );
 }
 
 function PhotoLayout({ photos }: { photos: string[] }) {
-  // Bumped from 24 to 32px — the photos are visually loud and need more
-  // breathing room before the memory text sits below them.
   const SPACING = "32px";
 
   const img = (src: string) => (
