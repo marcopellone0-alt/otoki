@@ -18,17 +18,6 @@ const REPORT_REASONS = [
   "Something else",
 ];
 
-/**
- * Three-dot actions menu shown on public profile pages for users OTHER than
- * the viewer. Offers Block and Report.
- *
- * Block is bidirectional at enforcement time: the blocked party sees nothing
- * disappear (standard UX) but all messages / profile visibility / scrapbook
- * tagging are mutually filtered by is_blocked_between().
- *
- * Report is append-only, no immediate in-app effect. Marco reviews reports
- * via the Supabase dashboard.
- */
 export default function ProfileActionsMenu({
   targetUserId,
   targetDisplayName,
@@ -54,6 +43,17 @@ export default function ProfileActionsMenu({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // Lock body scroll when report modal is open. Prevents the awkward situation
+  // where tapping the modal backdrop scrolls the page underneath.
+  useEffect(() => {
+    if (!reportOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [reportOpen]);
+
   const handleBlock = async () => {
     setOpen(false);
     const ok = window.confirm(
@@ -74,8 +74,6 @@ export default function ProfileActionsMenu({
       return;
     }
 
-    // Hard nav home — avoids trying to re-render a profile the user can no
-    // longer see.
     window.location.href = "/";
   };
 
@@ -179,7 +177,13 @@ export default function ProfileActionsMenu({
         )}
       </div>
 
-      {/* REPORT MODAL */}
+      {/*
+        REPORT MODAL — restructured as a three-zone bottom sheet:
+        - Header (fixed, with close button)
+        - Body (scrollable — reasons + notes)
+        - Footer (fixed, with submit button always visible)
+        Body scrolls within the modal so the underlying page doesn't move.
+      */}
       {reportOpen && (
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
@@ -189,16 +193,20 @@ export default function ProfileActionsMenu({
           }}
         >
           <div
-            className="w-full max-w-md p-6"
+            className="w-full max-w-md flex flex-col"
             style={{
               backgroundColor: "#171717",
               borderTopLeftRadius: "24px",
               borderTopRightRadius: "24px",
-              borderRadius: "24px",
+              maxHeight: "92dvh",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between mb-6">
+            {/* HEADER */}
+            <div
+              className="flex items-start justify-between px-6 pt-6 pb-4 shrink-0"
+              style={{ borderBottom: "0.5px solid #262626" }}
+            >
               <div>
                 <p
                   className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-2"
@@ -216,8 +224,9 @@ export default function ProfileActionsMenu({
               {!submitting && (
                 <button
                   onClick={() => setReportOpen(false)}
-                  className="w-9 h-9 rounded-full flex items-center justify-center"
+                  className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
                   style={{ backgroundColor: "#262626", color: "#A3A3A3" }}
+                  aria-label="Close"
                 >
                   <X size={18} />
                 </button>
@@ -225,7 +234,7 @@ export default function ProfileActionsMenu({
             </div>
 
             {submitted ? (
-              <div style={{ padding: "24px 0" }}>
+              <div style={{ padding: "32px 24px" }}>
                 <p
                   className="text-[15px] font-semibold"
                   style={{ color: "#FAFAFA" }}
@@ -241,78 +250,89 @@ export default function ProfileActionsMenu({
               </div>
             ) : (
               <>
-                <label
-                  className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-2"
-                  style={{ color: "#A3A3A3" }}
-                >
-                  Reason
-                </label>
+                {/* SCROLLABLE BODY */}
                 <div
-                  className="flex flex-col gap-2 mb-4"
-                  style={{ marginBottom: "16px" }}
+                  className="flex-1 overflow-y-auto px-6 py-4"
+                  style={{ overscrollBehavior: "contain" }}
                 >
-                  {REPORT_REASONS.map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => setReason(r)}
-                      className="text-left px-4 py-2.5 rounded-xl text-[14px] transition-colors"
-                      style={{
-                        backgroundColor:
-                          reason === r ? "#FAFAFA" : "#0A0A0A",
-                        color: reason === r ? "#0A0A0A" : "#FAFAFA",
-                        border:
-                          reason === r
-                            ? "1px solid #FAFAFA"
-                            : "1px solid #262626",
-                        cursor: "pointer",
-                      }}
+                  <label
+                    className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-2"
+                    style={{ color: "#A3A3A3" }}
+                  >
+                    Reason
+                  </label>
+                  <div className="flex flex-col gap-2 mb-4">
+                    {REPORT_REASONS.map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => setReason(r)}
+                        className="text-left px-4 py-2.5 rounded-xl text-[14px] transition-colors"
+                        style={{
+                          backgroundColor:
+                            reason === r ? "#FAFAFA" : "#0A0A0A",
+                          color: reason === r ? "#0A0A0A" : "#FAFAFA",
+                          border:
+                            reason === r
+                              ? "1px solid #FAFAFA"
+                              : "1px solid #262626",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+
+                  <label
+                    className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-2"
+                    style={{ color: "#A3A3A3" }}
+                  >
+                    Extra context (optional)
+                  </label>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value.slice(0, 500))}
+                    placeholder="Anything else we should know?"
+                    rows={3}
+                    className="w-full rounded-xl p-3 text-[14px] resize-none focus:outline-none"
+                    style={{
+                      backgroundColor: "#0A0A0A",
+                      border: "1px solid #262626",
+                      color: "#FAFAFA",
+                    }}
+                  />
+
+                  {error && (
+                    <p
+                      className="text-[12px] mt-3"
+                      style={{ color: "#FF0033" }}
                     >
-                      {r}
-                    </button>
-                  ))}
+                      {error}
+                    </p>
+                  )}
                 </div>
 
-                <label
-                  className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-2"
-                  style={{ color: "#A3A3A3" }}
-                >
-                  Extra context (optional)
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value.slice(0, 500))}
-                  placeholder="Anything else we should know?"
-                  rows={3}
-                  className="w-full rounded-xl p-3 text-[14px] resize-none focus:outline-none"
+                {/* FIXED FOOTER */}
+                <div
+                  className="px-6 pt-4 pb-6 shrink-0"
                   style={{
-                    backgroundColor: "#0A0A0A",
-                    border: "1px solid #262626",
-                    color: "#FAFAFA",
-                    marginBottom: "16px",
+                    borderTop: "0.5px solid #262626",
+                    paddingBottom: "calc(24px + env(safe-area-inset-bottom))",
                   }}
-                />
-
-                {error && (
-                  <p
-                    className="text-[12px] mb-3"
-                    style={{ color: "#FF0033" }}
+                >
+                  <button
+                    onClick={submitReport}
+                    disabled={submitting}
+                    className="w-full py-3 rounded-full font-bold text-[14px] uppercase tracking-wider transition-colors"
+                    style={{
+                      backgroundColor: submitting ? "#262626" : "#FF0033",
+                      color: submitting ? "#525252" : "#FFFFFF",
+                      cursor: submitting ? "not-allowed" : "pointer",
+                    }}
                   >
-                    {error}
-                  </p>
-                )}
-
-                <button
-                  onClick={submitReport}
-                  disabled={submitting}
-                  className="w-full py-3 rounded-full font-bold text-[14px] uppercase tracking-wider transition-colors"
-                  style={{
-                    backgroundColor: submitting ? "#262626" : "#FF0033",
-                    color: submitting ? "#525252" : "#FFFFFF",
-                    cursor: submitting ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {submitting ? "Submitting…" : "Submit report"}
-                </button>
+                    {submitting ? "Submitting…" : "Submit report"}
+                  </button>
+                </div>
               </>
             )}
           </div>
