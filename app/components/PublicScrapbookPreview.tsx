@@ -19,7 +19,6 @@ type Entry = {
 };
 
 type Props = {
-  /** The profile owner whose public scrapbook we're previewing. */
   ownerId: string;
 };
 
@@ -57,8 +56,7 @@ export default function PublicScrapbookPreview({ ownerId }: Props) {
     const load = async () => {
       const today = new Date().toISOString().split("T")[0];
 
-      // First: get total count of public past entries (for the "see more" link).
-      // Cheap because it's just a count, not a payload.
+      // Total count of public past entries — for the "see all" link.
       const { count } = await supabase
         .from("scrapbook_entries")
         .select("*", { count: "exact", head: true })
@@ -68,33 +66,57 @@ export default function PublicScrapbookPreview({ ownerId }: Props) {
 
       setTotalCount(count || 0);
 
-      // Now: get the most recent N entries.
-      const { data: entriesData, error } = await supabase
+      // Try featured entries first.
+      const { data: featuredData, error: featuredError } = await supabase
         .from("scrapbook_entries")
         .select("id, gig_name, gig_date, venue_name, memory")
         .eq("user_id", ownerId)
         .eq("visibility", "public")
+        .eq("featured_on_profile", true)
         .lt("gig_date", today)
         .order("gig_date", { ascending: false, nullsFirst: false })
         .limit(PREVIEW_LIMIT);
 
-      if (error) {
-        console.error("[public-scrapbook] entries error:", error);
-        setLoading(false);
-        return;
+      if (featuredError) {
+        console.error("[public-scrapbook] featured query error:", featuredError);
       }
 
-      const list = (entriesData || []) as Omit<Entry, "photos" | "companions">[];
+      let baseList = (featuredData || []) as Omit<
+        Entry,
+        "photos" | "companions"
+      >[];
 
-      if (list.length === 0) {
+      // Fall back to most-recent if user hasn't featured anything.
+      if (baseList.length === 0) {
+        const { data: recentData, error: recentError } = await supabase
+          .from("scrapbook_entries")
+          .select("id, gig_name, gig_date, venue_name, memory")
+          .eq("user_id", ownerId)
+          .eq("visibility", "public")
+          .lt("gig_date", today)
+          .order("gig_date", { ascending: false, nullsFirst: false })
+          .limit(PREVIEW_LIMIT);
+
+        if (recentError) {
+          console.error(
+            "[public-scrapbook] recent fallback error:",
+            recentError
+          );
+          setLoading(false);
+          return;
+        }
+
+        baseList = (recentData || []) as Omit<Entry, "photos" | "companions">[];
+      }
+
+      if (baseList.length === 0) {
         setEntries([]);
         setLoading(false);
         return;
       }
 
-      const entryIds = list.map((e) => e.id);
+      const entryIds = baseList.map((e) => e.id);
 
-      // Fetch photos + companions in parallel (independent queries).
       const [{ data: photosData }, { data: companionsData }] =
         await Promise.all([
           supabase
@@ -115,7 +137,6 @@ export default function PublicScrapbookPreview({ ownerId }: Props) {
         photosByEntry.get(p.entry_id)!.push(p.photo_url);
       });
 
-      // Hydrate display names for companion users.
       const userIds = (companionsData || [])
         .map((c: any) => c.tagged_user_id)
         .filter((id: string | null): id is string => !!id);
@@ -142,7 +163,7 @@ export default function PublicScrapbookPreview({ ownerId }: Props) {
       });
 
       setEntries(
-        list.map((e) => ({
+        baseList.map((e) => ({
           ...e,
           photos: photosByEntry.get(e.id) || [],
           companions: companionsByEntry.get(e.id) || [],
@@ -175,7 +196,7 @@ export default function PublicScrapbookPreview({ ownerId }: Props) {
         ))}
       </div>
 
-      {totalCount > PREVIEW_LIMIT && (
+      {totalCount > entries.length && (
         <a
           href={`/scrapbook/user/${ownerId}`}
           style={{
@@ -228,8 +249,6 @@ function PreviewBlock({ entry, isFirst }: { entry: Entry; isFirst: boolean }) {
         {entry.gig_name || "Untitled gig"}
       </h3>
 
-      {/* Single hero photo for preview — no need for the full multi-photo
-          layout here; keeps the preview compact on profiles */}
       {hasPhotos && (
         <div style={{ height: "180px", marginBottom: "20px" }}>
           <img
