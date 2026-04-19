@@ -66,17 +66,18 @@ export default function PublicUserScrapbookPage() {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Asymmetric block check: only hide if the OWNER blocked the VIEWER.
-      // The blocker should still be able to see content of users they've
-      // blocked (so they can manage the relationship).
+      // Asymmetric block check via SECURITY DEFINER rpc.
+      // Hide only if the OWNER blocked the VIEWER (so the blocker can still
+      // see content of users they've blocked, to manage the relationship).
       if (user && user.id !== ownerId) {
-        const { data: blockedByOwner } = await supabase
-          .from("blocks")
-          .select("id")
-          .eq("blocker_id", ownerId)
-          .eq("blocked_id", user.id)
-          .maybeSingle();
-        if (blockedByOwner) {
+        const { data: blockedByOwner } = await supabase.rpc(
+          "user_has_blocked",
+          {
+            blocker_user_id: ownerId,
+            blocked_user_id: user.id,
+          }
+        );
+        if (blockedByOwner === true) {
           setBlocked(true);
           setLoading(false);
           return;

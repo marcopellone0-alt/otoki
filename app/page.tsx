@@ -115,8 +115,6 @@ export default function Home() {
   const [loadingAttendees, setLoadingAttendees] = useState(false);
   const [hidingGigId, setHidingGigId] = useState<string | null>(null);
 
-  // Set of user IDs the current user has blocked OR who have blocked them.
-  // Used to filter attendees and counts so neither party sees the other's gigs.
   const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
 
   const isAdmin = user?.id === ADMIN_USER_ID;
@@ -126,25 +124,27 @@ export default function Home() {
   }, []);
 
   /**
-   * Load the set of user IDs the current user shouldn't see in attendee
-   * lists or counts — i.e. anyone they've blocked or who has blocked them.
-   * Returns the set so callers don't have to wait for state.
+   * Load the set of user ids the current user shouldn't see (anyone they
+   * blocked OR who blocked them).
+   *
+   * IMPORTANT: uses the get_blocked_user_ids SECURITY DEFINER rpc instead
+   * of querying the blocks table directly. Direct queries are subject to
+   * RLS, which prevents the BLOCKED party from seeing the row where they
+   * were blocked — meaning the blocked user's filter would silently fail.
    */
   const loadBlockedUserIds = async (userId: string): Promise<Set<string>> => {
     const set = new Set<string>();
-    const { data: blocks, error } = await supabase
-      .from("blocks")
-      .select("blocker_id, blocked_id")
-      .or(`blocker_id.eq.${userId},blocked_id.eq.${userId}`);
+    const { data, error } = await supabase.rpc("get_blocked_user_ids", {
+      viewer_id: userId,
+    });
 
     if (error) {
-      console.error("[blocks] load error:", error);
+      console.error("[blocks] rpc error:", error);
       return set;
     }
 
-    blocks?.forEach((b: any) => {
-      if (b.blocker_id === userId) set.add(b.blocked_id);
-      if (b.blocked_id === userId) set.add(b.blocker_id);
+    (data || []).forEach((row: any) => {
+      if (row.other_user_id) set.add(row.other_user_id);
     });
 
     setBlockedUserIds(set);
@@ -154,9 +154,6 @@ export default function Home() {
   const loadRsvps = async (gigList: any[]) => {
     const gigIds = gigList.map((g: any) => g.id);
 
-    // Refresh blocks before computing counts so the count + attendees stay
-    // consistent. Without this, a user who blocked someone earlier in the
-    // session might still see them counted.
     let blockSet = blockedUserIds;
     if (user) {
       blockSet = await loadBlockedUserIds(user.id);
@@ -169,7 +166,6 @@ export default function Home() {
 
     const counts: Record<string, number> = {};
     allRsvps?.forEach((r: any) => {
-      // Skip RSVPs from blocked users when computing counts the viewer sees.
       if (blockSet.has(r.user_id)) return;
       counts[r.gig_id] = (counts[r.gig_id] || 0) + 1;
     });
@@ -232,11 +228,6 @@ export default function Home() {
     }
   };
 
-  /**
-   * Load attendees for a gig and filter out anyone in the current viewer's
-   * block set (either direction). Keeps the modal contents consistent with
-   * the count shown on the card.
-   */
   const viewAttendees = async (gig: any) => {
     setViewingGig(gig);
     setLoadingAttendees(true);

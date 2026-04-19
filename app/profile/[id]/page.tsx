@@ -45,19 +45,20 @@ export default function PublicProfile() {
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUser(user);
 
-      // Block check: hide ONLY if the TARGET has blocked the VIEWER.
-      // The blocker should still be able to see the blocked user's profile
-      // so they can access the unblock menu via the three-dot.
-      // Asymmetric on purpose: viewer-as-blocker -> can see, viewer-as-blocked -> hidden.
+      // Asymmetric block check via SECURITY DEFINER rpc — direct table
+      // queries can't see the row from the blocked side because of RLS.
+      // Hide profile only if the TARGET has blocked the VIEWER.
+      // (Blocker can still see blocked user's profile to manage the block.)
       if (user && user.id !== userId) {
-        const { data: blockedByTarget } = await supabase
-          .from("blocks")
-          .select("id")
-          .eq("blocker_id", userId)   // target is the one who issued the block
-          .eq("blocked_id", user.id)  // viewer is the one being blocked
-          .maybeSingle();
+        const { data: blockedByTarget } = await supabase.rpc(
+          "user_has_blocked",
+          {
+            blocker_user_id: userId,   // is the target the blocker?
+            blocked_user_id: user.id,  // is the viewer the blocked?
+          }
+        );
 
-        if (blockedByTarget) {
+        if (blockedByTarget === true) {
           setProfile(null);
           setLoading(false);
           return;
