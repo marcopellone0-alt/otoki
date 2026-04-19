@@ -20,6 +20,8 @@ type Entry = {
 
 type Props = {
   ownerId: string;
+  /** If true, render copy hints aimed at the owner ('Your featured gigs'). */
+  isOwnProfile?: boolean;
 };
 
 function formatDateLine(d: string | null, venue: string | null) {
@@ -47,9 +49,13 @@ function formatCompanionByline(names: string[]): string {
   return `with ${rest} and ${last}`;
 }
 
-export default function PublicScrapbookPreview({ ownerId }: Props) {
+export default function PublicScrapbookPreview({
+  ownerId,
+  isOwnProfile = false,
+}: Props) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [totalCount, setTotalCount] = useState(0);
+  const [hasFeatured, setHasFeatured] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -78,13 +84,18 @@ export default function PublicScrapbookPreview({ ownerId }: Props) {
         .limit(PREVIEW_LIMIT);
 
       if (featuredError) {
-        console.error("[public-scrapbook] featured query error:", featuredError);
+        console.error(
+          "[public-scrapbook] featured query error:",
+          featuredError
+        );
       }
 
       let baseList = (featuredData || []) as Omit<
         Entry,
         "photos" | "companions"
       >[];
+      const usingFeatured = baseList.length > 0;
+      setHasFeatured(usingFeatured);
 
       // Fall back to most-recent if user hasn't featured anything.
       if (baseList.length === 0) {
@@ -177,14 +188,30 @@ export default function PublicScrapbookPreview({ ownerId }: Props) {
   if (loading) return null;
   if (entries.length === 0) return null;
 
+  // Owner-facing heading nudges them toward curation.
+  // Visitor-facing heading is just SCRAPBOOK.
+  const heading = isOwnProfile && hasFeatured ? "FEATURED" : "SCRAPBOOK";
+
   return (
     <div className="px-6 pb-10">
-      <h2
-        className="font-black tracking-[-0.02em] leading-[1.05] mb-5"
-        style={{ fontSize: "28px", color: "#FAFAFA" }}
-      >
-        SCRAPBOOK
-      </h2>
+      <div className="flex items-baseline justify-between mb-5">
+        <h2
+          className="font-black tracking-[-0.02em] leading-[1.05]"
+          style={{ fontSize: "28px", color: "#FAFAFA" }}
+        >
+          {heading}
+        </h2>
+        {isOwnProfile && (
+          <p
+            className="text-[11px]"
+            style={{ color: "#525252" }}
+          >
+            {hasFeatured
+              ? "Star entries to feature them"
+              : "Showing recent. Star entries to feature them"}
+          </p>
+        )}
+      </div>
 
       <div>
         {entries.map((entry, i) => (

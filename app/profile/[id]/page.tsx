@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useParams } from "next/navigation";
-import { ArrowLeft, MessageCircle } from "lucide-react";
+import { ArrowLeft, MessageCircle, Pencil } from "lucide-react";
 import FavouriteSong from "../../components/FavouriteSong";
 import SharedHistoryHero from "../../components/SharedHistoryHero";
 import PublicScrapbookPreview from "../../components/PublicScrapbookPreview";
@@ -44,11 +44,7 @@ export default function PublicProfile() {
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUser(user);
 
-      if (user && user.id === userId) {
-        window.location.href = "/profile";
-        return;
-      }
-
+      // No more redirect — own profile is a valid view of this page now.
       const { data: profileData } = await supabase
         .from("profiles")
         .select("*")
@@ -94,11 +90,12 @@ export default function PublicProfile() {
               }
             }
           } catch {
-            // oEmbed failed — card will just show "Tap to play" without metadata
+            // oEmbed failed — card just shows "Tap to play"
           }
         }
       }
 
+      // Upcoming gigs (this user's RSVPs)
       const { data: rsvpData } = await supabase
         .from("gig_rsvps")
         .select("*")
@@ -108,7 +105,8 @@ export default function PublicProfile() {
 
       setUpcomingGigs(rsvpData || []);
 
-      if (user && rsvpData && rsvpData.length > 0) {
+      // Match badges only relevant when viewing someone else's profile.
+      if (user && user.id !== userId && rsvpData && rsvpData.length > 0) {
         const gigIds = rsvpData.map((r: any) => r.gig_id);
         const { data: mineData } = await supabase
           .from("gig_rsvps")
@@ -152,7 +150,7 @@ export default function PublicProfile() {
     );
   }
 
-  const isOwnProfile = currentUser && currentUser.id === userId;
+  const isOwnProfile = !!(currentUser && currentUser.id === userId);
 
   const songVideoId = profile.favourite_song_url
     ? extractYouTubeId(profile.favourite_song_url)
@@ -166,7 +164,7 @@ export default function PublicProfile() {
       className="min-h-screen text-white relative"
       style={{ backgroundColor: "#0A0A0A" }}
     >
-      {/* ================ BLURRED ALBUM ART BACKGROUND ================ */}
+      {/* Blurred album art background */}
       {backgroundImage && (
         <div
           className="fixed inset-0 z-0 pointer-events-none"
@@ -194,9 +192,7 @@ export default function PublicProfile() {
         </div>
       )}
 
-      {/* ================ FOREGROUND CONTENT ================ */}
       <div className="relative z-10">
-        {/* ================ HEADER ================ */}
         <div className="px-6 pt-6 pb-8">
           <a
             href="/"
@@ -208,15 +204,18 @@ export default function PublicProfile() {
           </a>
 
           {/*
-            SHARED HISTORY HERO — first thing on the profile per locked vision.
-            Renders nothing if there's no overlap (zero-state hidden by design).
+            Shared-history hero — only meaningful when viewing someone else's
+            profile. The component itself also short-circuits on self, but
+            we skip rendering entirely so the spacing is right.
           */}
-          <SharedHistoryHero
-            targetUserId={userId}
-            viewerUserId={currentUser?.id || null}
-          />
+          {!isOwnProfile && (
+            <SharedHistoryHero
+              targetUserId={userId}
+              viewerUserId={currentUser?.id || null}
+            />
+          )}
 
-          {/* Avatar + identity. Count pill removed — replaced by the hero above. */}
+          {/* Avatar + identity */}
           <div className="flex items-start gap-4 mb-6">
             <div
               className="shrink-0 rounded-full overflow-hidden"
@@ -255,7 +254,6 @@ export default function PublicProfile() {
             </div>
           </div>
 
-          {/* Bio */}
           {profile.bio && (
             <p
               className="text-[15px] leading-[1.5] mb-6"
@@ -265,24 +263,27 @@ export default function PublicProfile() {
             </p>
           )}
 
-          {/* Message button */}
-          {!isOwnProfile && currentUser && (
+          {/* CTA: Message (others) or Edit profile (self) */}
+          {currentUser && (
             <a
-              href={`/messages?to=${userId}`}
+              href={isOwnProfile ? "/profile" : `/messages?to=${userId}`}
               className="inline-flex items-center justify-center gap-2 font-extrabold text-[14px] uppercase tracking-wider rounded-full px-6 py-3 transition-colors"
               style={{
-                backgroundColor: "#FF0033",
+                backgroundColor: isOwnProfile ? "#171717" : "#FF0033",
                 color: "#FFFFFF",
-                boxShadow: "0 8px 24px rgba(255, 0, 51, 0.25)",
+                border: isOwnProfile ? "1px solid #262626" : "none",
+                boxShadow: isOwnProfile
+                  ? "none"
+                  : "0 8px 24px rgba(255, 0, 51, 0.25)",
               }}
             >
-              <MessageCircle size={16} />
-              Message
+              {isOwnProfile ? <Pencil size={16} /> : <MessageCircle size={16} />}
+              {isOwnProfile ? "Edit profile" : "Message"}
             </a>
           )}
         </div>
 
-        {/* ================ FAVOURITE SONG ================ */}
+        {/* Favourite song */}
         <FavouriteSong
           url={profile.favourite_song_url}
           artworkUrl={profile.favourite_song_artwork_url}
@@ -290,7 +291,7 @@ export default function PublicProfile() {
           artist={favouriteSongMeta.artist}
         />
 
-        {/* ================ GOING TO ================ */}
+        {/* Going to */}
         <div className="px-6 pb-10">
           <h2
             className="font-black tracking-[-0.02em] leading-[1.05] mb-5"
@@ -307,7 +308,7 @@ export default function PublicProfile() {
             <div className="space-y-3">
               {upcomingGigs.map((gig: any) => {
                 const dateInfo = formatGigDate(gig.gig_date);
-                const isMatch = myRsvps.has(gig.gig_id);
+                const isMatch = !isOwnProfile && myRsvps.has(gig.gig_id);
 
                 return (
                   <article
@@ -390,11 +391,10 @@ export default function PublicProfile() {
           )}
         </div>
 
-        {/* ================ SCRAPBOOK PREVIEW ================ */}
-        {/* Renders nothing if the user has no public entries */}
-        <PublicScrapbookPreview ownerId={userId} />
+        {/* Scrapbook preview — now also visible on own profile */}
+        <PublicScrapbookPreview ownerId={userId} isOwnProfile={isOwnProfile} />
 
-        {/* ================ FOOTER METADATA: GENRES + VENUES ================ */}
+        {/* Genres + venues */}
         {(profile.favourite_genres?.length > 0 ||
           profile.favourite_venues?.length > 0) && (
           <div

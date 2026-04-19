@@ -18,11 +18,16 @@ import { supabase } from "../../lib/supabase";
  *
  * Active state is based on the current pathname.
  * A red dot appears on the Messages tab when there are unread messages.
+ *
+ * The Profile tab navigates to /profile/[user-id] (the public profile view
+ * with edit affordances when it's yours). Falls back to /profile if user ID
+ * hasn't loaded yet.
  */
 export default function TabBar() {
   const pathname = usePathname();
   const [hasUnread, setHasUnread] = useState(false);
   const [chatActive, setChatActive] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   // Hook 1: Listen for chat-active state from messages page
   useEffect(() => {
@@ -42,7 +47,7 @@ export default function TabBar() {
     }
   }, [pathname]);
 
-  // Hook 3: Unread messages subscription
+  // Hook 3: Unread messages subscription + grab user id for profile link
   useEffect(() => {
     let mounted = true;
     let channel: any = null;
@@ -50,6 +55,7 @@ export default function TabBar() {
     const setup = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || !mounted) return;
+      setUserId(user.id);
 
       const loadUnread = async () => {
         const { count } = await supabase
@@ -89,6 +95,10 @@ export default function TabBar() {
   const hiddenOnRoute = pathname === "/auth" || pathname === "/privacy";
   if (hiddenOnRoute || chatActive) return null;
 
+  // Profile tab href: prefer the public-view URL, fall back to /profile if
+  // we don't have a user id yet (e.g. initial render before auth resolves).
+  const profileHref = userId ? `/profile/${userId}` : "/profile";
+
   const tabs = [
     { href: "/", label: "Gigs", icon: Home, match: (p: string) => p === "/" },
     {
@@ -105,9 +115,11 @@ export default function TabBar() {
       match: (p: string) => p.startsWith("/scrapbook"),
     },
     {
-      href: "/profile",
+      href: profileHref,
       label: "Profile",
       icon: User,
+      // Highlight Profile tab whether you're on /profile (edit form) or
+      // /profile/[id] (public view) — they're conceptually the same surface.
       match: (p: string) => p.startsWith("/profile"),
     },
   ];
@@ -127,7 +139,7 @@ export default function TabBar() {
           const Icon = tab.icon;
           return (
             <a
-              key={tab.href}
+              key={tab.label}
               href={tab.href}
               className="flex-1 flex flex-col items-center justify-center gap-1 py-3 transition-colors"
               style={{
