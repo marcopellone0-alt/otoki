@@ -6,10 +6,6 @@ import { X, EyeOff } from "lucide-react";
 
 const ADMIN_USER_ID = "84bc8318-7103-469d-960e-00ef456d6853";
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 const getDateRange = () => {
   const from = new Date().toISOString().split("T")[0];
   const to = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
@@ -98,10 +94,6 @@ const trimGigForPayload = (gig: any) => ({
   _curated_youtube_video_id: gig._curated_youtube_video_id || null,
 });
 
-// ============================================================================
-// Main Component
-// ============================================================================
-
 export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
@@ -123,20 +115,62 @@ export default function Home() {
   const [loadingAttendees, setLoadingAttendees] = useState(false);
   const [hidingGigId, setHidingGigId] = useState<string | null>(null);
 
+  // Set of user IDs the current user has blocked OR who have blocked them.
+  // Used to filter attendees and counts so neither party sees the other's gigs.
+  const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
+
   const isAdmin = user?.id === ADMIN_USER_ID;
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
   }, []);
 
+  /**
+   * Load the set of user IDs the current user shouldn't see in attendee
+   * lists or counts — i.e. anyone they've blocked or who has blocked them.
+   * Returns the set so callers don't have to wait for state.
+   */
+  const loadBlockedUserIds = async (userId: string): Promise<Set<string>> => {
+    const set = new Set<string>();
+    const { data: blocks, error } = await supabase
+      .from("blocks")
+      .select("blocker_id, blocked_id")
+      .or(`blocker_id.eq.${userId},blocked_id.eq.${userId}`);
+
+    if (error) {
+      console.error("[blocks] load error:", error);
+      return set;
+    }
+
+    blocks?.forEach((b: any) => {
+      if (b.blocker_id === userId) set.add(b.blocked_id);
+      if (b.blocked_id === userId) set.add(b.blocker_id);
+    });
+
+    setBlockedUserIds(set);
+    return set;
+  };
+
   const loadRsvps = async (gigList: any[]) => {
     const gigIds = gigList.map((g: any) => g.id);
+
+    // Refresh blocks before computing counts so the count + attendees stay
+    // consistent. Without this, a user who blocked someone earlier in the
+    // session might still see them counted.
+    let blockSet = blockedUserIds;
+    if (user) {
+      blockSet = await loadBlockedUserIds(user.id);
+    }
+
     const { data: allRsvps } = await supabase
       .from("gig_rsvps")
-      .select("gig_id")
+      .select("gig_id, user_id")
       .in("gig_id", gigIds);
+
     const counts: Record<string, number> = {};
-    allRsvps?.forEach((r) => {
+    allRsvps?.forEach((r: any) => {
+      // Skip RSVPs from blocked users when computing counts the viewer sees.
+      if (blockSet.has(r.user_id)) return;
       counts[r.gig_id] = (counts[r.gig_id] || 0) + 1;
     });
     setRsvpCounts(counts);
@@ -158,16 +192,11 @@ export default function Home() {
     }
     const gigId = gig.id;
     if (rsvps.has(gigId)) {
-      // Un-RSVP: delete gig_rsvps row. The ON DELETE CASCADE on scrapbook_entries.rsvp_id
-      // will automatically remove the corresponding scrapbook entry.
       await supabase.from("gig_rsvps").delete().match({ user_id: user.id, gig_id: gigId });
       rsvps.delete(gigId);
       setRsvps(new Set(rsvps));
       setRsvpCounts((prev) => ({ ...prev, [gigId]: (prev[gigId] || 1) - 1 }));
     } else {
-      // RSVP: insert gig_rsvps row, then auto-create a placeholder scrapbook entry
-      // linked to it. The .select().single() chain returns the new row so we can
-      // reference its id.
       const { data: rsvpData, error: rsvpError } = await supabase
         .from("gig_rsvps")
         .insert({
@@ -181,8 +210,6 @@ export default function Home() {
         .single();
 
       if (!rsvpError && rsvpData) {
-        // Fire and forget. If this fails the RSVP still succeeded; the user
-        // just won't have a scrapbook entry auto-created. Safe failure mode.
         supabase
           .from("scrapbook_entries")
           .insert({
@@ -205,6 +232,11 @@ export default function Home() {
     }
   };
 
+  /**
+   * Load attendees for a gig and filter out anyone in the current viewer's
+   * block set (either direction). Keeps the modal contents consistent with
+   * the count shown on the card.
+   */
   const viewAttendees = async (gig: any) => {
     setViewingGig(gig);
     setLoadingAttendees(true);
@@ -212,7 +244,11 @@ export default function Home() {
       .from("gig_rsvps")
       .select("user_id, profiles(display_name, bio, favourite_genres, favourite_venues)")
       .eq("gig_id", gig.id);
-    setAttendees(data || []);
+
+    const filtered = (data || []).filter(
+      (a: any) => !blockedUserIds.has(a.user_id)
+    );
+    setAttendees(filtered);
     setLoadingAttendees(false);
   };
 
@@ -302,7 +338,6 @@ export default function Home() {
         (hiddenResponse.data || []).map((h: any) => h.event_id)
       );
 
-      // Set editorial note
       if (noteResponse.data && noteResponse.data.length > 0) {
         setWeeklyNote(noteResponse.data[0].note);
       }
@@ -378,16 +413,11 @@ export default function Home() {
     }
   };
 
-  // ==========================================================================
-  // DASHBOARD VIEW
-  // ==========================================================================
-
   if (showDashboard) {
     const groupedGigs = groupGigsByDay(gigs);
 
     return (
       <main className="min-h-screen text-white" style={{ backgroundColor: "#0A0A0A" }}>
-        {/* ================ ATTENDEES MODAL ================ */}
         {viewingGig && (
           <div
             className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
@@ -485,7 +515,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* ================ HEADER ================ */}
         <div className="px-6 pt-12 pb-2">
           <p
             className="text-[11px] font-semibold uppercase tracking-[0.15em] mb-3"
@@ -502,7 +531,6 @@ export default function Home() {
           </h1>
         </div>
 
-        {/* ================ EDITORIAL BANNER ================ */}
         {weeklyNote && (
           <div className="px-6 pt-4 pb-2">
             <p
@@ -514,7 +542,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* ================ STICKY MIXTAPE BAR ================ */}
         <div
           className="sticky top-0 z-30 px-6 py-4"
           style={{
@@ -538,7 +565,6 @@ export default function Home() {
               >
                 OPEN IN YOUTUBE MUSIC ↗
               </a>
-              {/* Admin-only debug stats */}
               {isAdmin && mixtapeStats && (
                 <p
                   className="text-center text-[11px] mt-2 font-semibold"
@@ -568,7 +594,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* ================ GIG LIST ================ */}
         <div className="px-6 py-6 space-y-10">
           {groupedGigs.length === 0 ? (
             <p className="text-center py-12" style={{ color: "#525252" }}>
@@ -725,10 +750,6 @@ export default function Home() {
       </main>
     );
   }
-
-  // ==========================================================================
-  // LANDING VIEW
-  // ==========================================================================
 
   return (
     <main

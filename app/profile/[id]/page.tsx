@@ -45,15 +45,19 @@ export default function PublicProfile() {
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUser(user);
 
-      // Check block status BEFORE loading profile data. If blocked in either
-      // direction, treat the profile as not-found — same UI as a deleted /
-      // missing account, so we don't confirm the block.
+      // Block check: hide ONLY if the TARGET has blocked the VIEWER.
+      // The blocker should still be able to see the blocked user's profile
+      // so they can access the unblock menu via the three-dot.
+      // Asymmetric on purpose: viewer-as-blocker -> can see, viewer-as-blocked -> hidden.
       if (user && user.id !== userId) {
-        const { data: blocked } = await supabase.rpc("is_blocked_between", {
-          user_a: user.id,
-          user_b: userId,
-        });
-        if (blocked) {
+        const { data: blockedByTarget } = await supabase
+          .from("blocks")
+          .select("id")
+          .eq("blocker_id", userId)   // target is the one who issued the block
+          .eq("blocked_id", user.id)  // viewer is the one being blocked
+          .maybeSingle();
+
+        if (blockedByTarget) {
           setProfile(null);
           setLoading(false);
           return;

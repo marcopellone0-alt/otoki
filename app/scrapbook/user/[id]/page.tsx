@@ -66,14 +66,17 @@ export default function PublicUserScrapbookPage() {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Block check first — same pattern as profile page. If blocked,
-      // render the not-found state so we don't expose scrapbook content.
+      // Asymmetric block check: only hide if the OWNER blocked the VIEWER.
+      // The blocker should still be able to see content of users they've
+      // blocked (so they can manage the relationship).
       if (user && user.id !== ownerId) {
-        const { data: isBlocked } = await supabase.rpc("is_blocked_between", {
-          user_a: user.id,
-          user_b: ownerId,
-        });
-        if (isBlocked) {
+        const { data: blockedByOwner } = await supabase
+          .from("blocks")
+          .select("id")
+          .eq("blocker_id", ownerId)
+          .eq("blocked_id", user.id)
+          .maybeSingle();
+        if (blockedByOwner) {
           setBlocked(true);
           setLoading(false);
           return;
@@ -213,8 +216,6 @@ export default function PublicUserScrapbookPage() {
     }
   };
 
-  // Blocked → render the same not-found UI as a missing profile, so the
-  // viewer can't tell whether the user deleted their account or blocked them.
   if (!loading && blocked) {
     return (
       <main
