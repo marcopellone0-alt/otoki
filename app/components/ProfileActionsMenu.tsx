@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MoreVertical, Shield, Flag, X } from "lucide-react";
+import { MoreVertical, Shield, ShieldOff, Flag, X } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 type Props = {
@@ -29,7 +29,40 @@ export default function ProfileActionsMenu({
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Block state: is this target currently blocked by the viewer?
+  // Stored as the block row's id when present (for cheap deletion), null otherwise.
+  const [existingBlockId, setExistingBlockId] = useState<string | null>(null);
+  const [blockBusy, setBlockBusy] = useState(false);
+
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // On mount, check whether the viewer has blocked this target. Profiles
+  // aren't hidden after blocking, so this menu has to handle the
+  // already-blocked case correctly.
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+      const { data, error } = await supabase
+        .from("blocks")
+        .select("id")
+        .eq("blocker_id", user.id)
+        .eq("blocked_id", targetUserId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        console.error("[block-check] error:", error);
+        return;
+      }
+      setExistingBlockId(data?.id || null);
+    };
+    check();
+    return () => {
+      cancelled = true;
+    };
+  }, [targetUserId]);
 
   // Close the dropdown on outside click.
   useEffect(() => {
@@ -43,8 +76,8 @@ export default function ProfileActionsMenu({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // Lock body scroll when report modal is open. Prevents the awkward situation
-  // where tapping the modal backdrop scrolls the page underneath.
+  // Lock body scroll when the report modal is open. Prevents the modal
+  // backdrop tap from scrolling the underlying page.
   useEffect(() => {
     if (!reportOpen) return;
     const previousOverflow = document.body.style.overflow;
@@ -60,13 +93,21 @@ export default function ProfileActionsMenu({
       `Block ${targetDisplayName}? You won't see each other on Otoki anymore. You can unblock them anytime from your profile settings.`
     );
     if (!ok) return;
+    setBlockBusy(true);
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) {
+      setBlockBusy(false);
+      return;
+    }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("blocks")
-      .insert({ blocker_id: user.id, blocked_id: targetUserId });
+      .insert({ blocker_id: user.id, blocked_id: targetUserId })
+      .select("id")
+      .single();
+
+    setBlockBusy(false);
 
     if (error) {
       console.error("[block] error:", error);
@@ -74,7 +115,36 @@ export default function ProfileActionsMenu({
       return;
     }
 
+    if (data) setExistingBlockId(data.id);
+
+    // Hard nav home — keeps the standard "they're gone from your view" flow.
     window.location.href = "/";
+  };
+
+  const handleUnblock = async () => {
+    setOpen(false);
+    const ok = window.confirm(`Unblock ${targetDisplayName}?`);
+    if (!ok) return;
+    if (!existingBlockId) return;
+    setBlockBusy(true);
+
+    const { error } = await supabase
+      .from("blocks")
+      .delete()
+      .eq("id", existingBlockId);
+
+    setBlockBusy(false);
+
+    if (error) {
+      console.error("[unblock] error:", error);
+      window.alert("Couldn't unblock. Please try again.");
+      return;
+    }
+
+    setExistingBlockId(null);
+    // Reload the page so message history and other block-filtered content
+    // reappears. Cleaner than trying to manually re-fetch every component.
+    window.location.reload();
   };
 
   const submitReport = async () => {
@@ -114,6 +184,8 @@ export default function ProfileActionsMenu({
     }, 1500);
   };
 
+  const isBlocked = !!existingBlockId;
+
   return (
     <>
       <div ref={menuRef} style={{ position: "relative" }}>
@@ -141,21 +213,43 @@ export default function ProfileActionsMenu({
               boxShadow: "0 8px 24px rgba(0, 0, 0, 0.5)",
             }}
           >
-            <button
-              onClick={handleBlock}
-              className="w-full flex items-center gap-3 text-left px-4 py-3 transition-colors"
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "#FAFAFA",
-                fontSize: "14px",
-                borderBottom: "0.5px solid #262626",
-                cursor: "pointer",
-              }}
-            >
-              <Shield size={15} color="#A3A3A3" />
-              Block
-            </button>
+            {isBlocked ? (
+              <button
+                onClick={handleUnblock}
+                disabled={blockBusy}
+                className="w-full flex items-center gap-3 text-left px-4 py-3 transition-colors"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#FAFAFA",
+                  fontSize: "14px",
+                  borderBottom: "0.5px solid #262626",
+                  cursor: blockBusy ? "not-allowed" : "pointer",
+                  opacity: blockBusy ? 0.5 : 1,
+                }}
+              >
+                <ShieldOff size={15} color="#A3A3A3" />
+                Unblock
+              </button>
+            ) : (
+              <button
+                onClick={handleBlock}
+                disabled={blockBusy}
+                className="w-full flex items-center gap-3 text-left px-4 py-3 transition-colors"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#FAFAFA",
+                  fontSize: "14px",
+                  borderBottom: "0.5px solid #262626",
+                  cursor: blockBusy ? "not-allowed" : "pointer",
+                  opacity: blockBusy ? 0.5 : 1,
+                }}
+              >
+                <Shield size={15} color="#A3A3A3" />
+                Block
+              </button>
+            )}
             <button
               onClick={() => {
                 setOpen(false);
@@ -178,11 +272,13 @@ export default function ProfileActionsMenu({
       </div>
 
       {/*
-        REPORT MODAL — restructured as a three-zone bottom sheet:
-        - Header (fixed, with close button)
-        - Body (scrollable — reasons + notes)
-        - Footer (fixed, with submit button always visible)
-        Body scrolls within the modal so the underlying page doesn't move.
+        REPORT MODAL — three-zone bottom sheet.
+        Header (fixed) + Body (scrollable) + Footer (fixed).
+
+        CRITICAL: the body div needs minHeight: 0 alongside flex: 1 and
+        overflowY: auto. Without min-height, a flex child won't shrink
+        below its content size, so the overflow never clips and the modal
+        becomes non-scrollable. Classic flexbox gotcha.
       */}
       {reportOpen && (
         <div
@@ -199,13 +295,17 @@ export default function ProfileActionsMenu({
               borderTopLeftRadius: "24px",
               borderTopRightRadius: "24px",
               maxHeight: "92dvh",
+              minHeight: 0, // safety: allow this flex child to shrink too
             }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* HEADER */}
             <div
-              className="flex items-start justify-between px-6 pt-6 pb-4 shrink-0"
-              style={{ borderBottom: "0.5px solid #262626" }}
+              className="flex items-start justify-between px-6 pt-6 pb-4"
+              style={{
+                borderBottom: "0.5px solid #262626",
+                flexShrink: 0,
+              }}
             >
               <div>
                 <p
@@ -234,7 +334,7 @@ export default function ProfileActionsMenu({
             </div>
 
             {submitted ? (
-              <div style={{ padding: "32px 24px" }}>
+              <div style={{ padding: "32px 24px", flexShrink: 0 }}>
                 <p
                   className="text-[15px] font-semibold"
                   style={{ color: "#FAFAFA" }}
@@ -250,10 +350,15 @@ export default function ProfileActionsMenu({
               </div>
             ) : (
               <>
-                {/* SCROLLABLE BODY */}
+                {/* SCROLLABLE BODY — minHeight: 0 is the magic line */}
                 <div
-                  className="flex-1 overflow-y-auto px-6 py-4"
-                  style={{ overscrollBehavior: "contain" }}
+                  className="px-6 py-4"
+                  style={{
+                    flex: "1 1 auto",
+                    minHeight: 0,
+                    overflowY: "auto",
+                    overscrollBehavior: "contain",
+                  }}
                 >
                   <label
                     className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-2"
@@ -314,10 +419,11 @@ export default function ProfileActionsMenu({
 
                 {/* FIXED FOOTER */}
                 <div
-                  className="px-6 pt-4 pb-6 shrink-0"
+                  className="px-6 pt-4 pb-6"
                   style={{
                     borderTop: "0.5px solid #262626",
                     paddingBottom: "calc(24px + env(safe-area-inset-bottom))",
+                    flexShrink: 0,
                   }}
                 >
                   <button
