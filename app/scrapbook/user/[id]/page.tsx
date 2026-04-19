@@ -57,15 +57,31 @@ export default function PublicUserScrapbookPage() {
   const [ownerName, setOwnerName] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [blocked, setBlocked] = useState(false);
   const [showYearJumper, setShowYearJumper] = useState(false);
 
   const yearRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // Block check first — same pattern as profile page. If blocked,
+      // render the not-found state so we don't expose scrapbook content.
+      if (user && user.id !== ownerId) {
+        const { data: isBlocked } = await supabase.rpc("is_blocked_between", {
+          user_a: user.id,
+          user_b: ownerId,
+        });
+        if (isBlocked) {
+          setBlocked(true);
+          setLoading(false);
+          return;
+        }
+      }
+
       const today = new Date().toISOString().split("T")[0];
 
-      // Owner's display name for the header.
       const { data: profile } = await supabase
         .from("profiles")
         .select("display_name")
@@ -73,7 +89,6 @@ export default function PublicUserScrapbookPage() {
         .maybeSingle();
       setOwnerName(profile?.display_name || "Someone");
 
-      // Public, past entries only.
       const { data: entriesData, error } = await supabase
         .from("scrapbook_entries")
         .select("id, gig_name, gig_date, venue_name, memory")
@@ -197,6 +212,26 @@ export default function PublicUserScrapbookPage() {
       window.scrollTo({ top: y, behavior: "smooth" });
     }
   };
+
+  // Blocked → render the same not-found UI as a missing profile, so the
+  // viewer can't tell whether the user deleted their account or blocked them.
+  if (!loading && blocked) {
+    return (
+      <main
+        className="min-h-screen flex flex-col items-center justify-center p-6"
+        style={{ backgroundColor: "#0A0A0A", color: "#FAFAFA" }}
+      >
+        <p style={{ color: "#525252" }}>Profile not found.</p>
+        <a
+          href="/"
+          className="text-sm mt-4"
+          style={{ color: "#A3A3A3" }}
+        >
+          ← Back to gigs
+        </a>
+      </main>
+    );
+  }
 
   return (
     <main

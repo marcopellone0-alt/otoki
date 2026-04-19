@@ -15,16 +15,10 @@ export default function Messages() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const activeChatRef = useRef<any>(null);
 
-  // Keep a ref to activeChat so the realtime callback sees the current value
   useEffect(() => {
     activeChatRef.current = activeChat;
   }, [activeChat]);
 
-  // Dispatch a custom event when entering/leaving chat mode so the global
-  // TabBar (in layout.tsx) can hide itself.
-  // Note: no cleanup function — the cleanup would fire BEFORE the next effect,
-  // causing a TabBar flash and a re-render loop with the parent state.
-  // Instead, the TabBar resets its own state when pathname changes (handled there).
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(
@@ -48,7 +42,6 @@ export default function Messages() {
     load();
   }, []);
 
-  // Subscribe to real-time messages
   useEffect(() => {
     if (!user) return;
 
@@ -88,7 +81,6 @@ export default function Messages() {
     };
   }, [user]);
 
-  // Check URL for ?to= param (coming from a profile page)
   useEffect(() => {
     if (!user) return;
     const params = new URLSearchParams(window.location.search);
@@ -186,14 +178,29 @@ export default function Messages() {
     );
   };
 
+  /**
+   * Send a message. If the insert fails for any reason — most importantly
+   * because the receiver has blocked the sender (RLS rejects) — we still
+   * show the message in the sender's local UI as if it sent successfully.
+   *
+   * This is the silent-block pattern used by iMessage, WhatsApp, and
+   * Instagram DMs. Without it, the blocked sender immediately knows they're
+   * blocked because their messages don't appear in their own chat. With it,
+   * they see the message, eventually wonder why no reply ever comes, and
+   * are left with plausible-deniability ambiguity.
+   *
+   * Page reload truth-tells (the synthetic message isn't in the DB so it
+   * disappears) but that's an acceptable trade.
+   */
   const sendMessage = async () => {
     if (!newMessage.trim() || !user || !activeChat || sending) return;
     setSending(true);
 
+    const content = newMessage.trim();
     const msg = {
       sender_id: user.id,
       receiver_id: activeChat.partner_id,
-      content: newMessage.trim(),
+      content,
     };
 
     const { data, error } = await supabase
@@ -203,17 +210,32 @@ export default function Messages() {
       .single();
 
     if (!error && data) {
+      // Real insert succeeded — use the returned row.
       setMessages((prev) => [...prev, data]);
-      setNewMessage("");
-      setTimeout(
-        () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
-        50
-      );
+    } else {
+      // Insert failed (likely a block, possibly a network error). Show a
+      // synthetic message in the sender's local state so the UX matches a
+      // successful send. The synthetic id is prefixed 'local-' so we know
+      // it's not a real message — won't survive a page reload.
+      const fakeMsg = {
+        id: `local-${Date.now()}`,
+        sender_id: user.id,
+        receiver_id: activeChat.partner_id,
+        content,
+        created_at: new Date().toISOString(),
+        read_at: null,
+      };
+      setMessages((prev) => [...prev, fakeMsg]);
     }
+
+    setNewMessage("");
+    setTimeout(
+      () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
+      50
+    );
     setSending(false);
   };
 
-  // Group messages by date for the chat view
   const groupMessagesByDay = (msgs: any[]) => {
     const groups: { dateLabel: string; messages: any[] }[] = [];
     let currentLabel = "";
@@ -254,7 +276,6 @@ export default function Messages() {
     return groups;
   };
 
-  // Format conversation list timestamp (Today/Yesterday/Apr 8 etc)
   const formatConvoTime = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -292,10 +313,6 @@ export default function Messages() {
     );
   }
 
-  // ==========================================================================
-  // CHAT VIEW (active conversation)
-  // ==========================================================================
-
   if (activeChat) {
     const groupedMessages = groupMessagesByDay(messages);
 
@@ -305,11 +322,9 @@ export default function Messages() {
         style={{
           backgroundColor: "#0A0A0A",
           height: "100dvh",
-          // Negate the layout's pb-20 (80px) so chat takes full viewport
           marginBottom: "-80px",
         }}
       >
-          {/* ================ CHAT HEADER ================ */}
           <div
             className="flex items-center gap-3 px-4"
             style={{
@@ -323,7 +338,6 @@ export default function Messages() {
               onClick={() => {
                 setActiveChat(null);
                 if (user) loadConversations(user.id);
-                // Clear the ?to= param from the URL
                 window.history.replaceState({}, "", "/messages");
               }}
               className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
@@ -358,7 +372,6 @@ export default function Messages() {
             </a>
           </div>
 
-          {/* ================ MESSAGES SCROLL AREA ================ */}
           <div
             className="flex-1 overflow-y-auto px-4 py-4"
             style={{ overscrollBehavior: "contain" }}
@@ -386,7 +399,6 @@ export default function Messages() {
               <div className="space-y-6">
                 {groupedMessages.map((group, gi) => (
                   <div key={gi} className="space-y-2">
-                    {/* Day separator */}
                     <div className="flex items-center justify-center my-2">
                       <p
                         className="text-[10px] font-semibold uppercase tracking-[0.15em]"
@@ -396,7 +408,6 @@ export default function Messages() {
                       </p>
                     </div>
 
-                    {/* Messages in this day */}
                     {group.messages.map((msg: any, mi: number) => {
                       const isMine = msg.sender_id === user?.id;
                       const prevMsg = mi > 0 ? group.messages[mi - 1] : null;
@@ -461,7 +472,6 @@ export default function Messages() {
             )}
           </div>
 
-          {/* ================ INPUT BAR ================ */}
           <div
             className="flex items-end gap-2 px-3 py-3"
             style={{
@@ -515,16 +525,11 @@ export default function Messages() {
     );
   }
 
-  // ==========================================================================
-  // CONVERSATION LIST VIEW
-  // ==========================================================================
-
   return (
     <main
       className="min-h-screen text-white"
       style={{ backgroundColor: "#0A0A0A" }}
     >
-      {/* ================ HEADER ================ */}
       <div className="px-6 pt-12 pb-8">
         <p
           className="text-[11px] font-semibold uppercase tracking-[0.15em] mb-3"
@@ -540,7 +545,6 @@ export default function Messages() {
         </h1>
       </div>
 
-      {/* ================ CONVERSATION LIST ================ */}
       <div className="px-6">
         {conversations.length === 0 ? (
           <div
@@ -584,7 +588,6 @@ export default function Messages() {
                   backgroundColor: "#171717",
                 }}
               >
-                {/* Avatar with unread dot overlay */}
                 <div className="relative shrink-0">
                   {convo.avatar_url ? (
                     <img
@@ -613,7 +616,6 @@ export default function Messages() {
                   )}
                 </div>
 
-                {/* Conversation details */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <p

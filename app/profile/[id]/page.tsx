@@ -45,6 +45,21 @@ export default function PublicProfile() {
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUser(user);
 
+      // Check block status BEFORE loading profile data. If blocked in either
+      // direction, treat the profile as not-found — same UI as a deleted /
+      // missing account, so we don't confirm the block.
+      if (user && user.id !== userId) {
+        const { data: blocked } = await supabase.rpc("is_blocked_between", {
+          user_a: user.id,
+          user_b: userId,
+        });
+        if (blocked) {
+          setProfile(null);
+          setLoading(false);
+          return;
+        }
+      }
+
       const { data: profileData } = await supabase
         .from("profiles")
         .select("*")
@@ -261,10 +276,6 @@ export default function PublicProfile() {
             </p>
           )}
 
-          {/*
-            Action row. Message + ProfileActionsMenu when viewing others;
-            Edit profile alone when viewing self.
-          */}
           {currentUser && (
             <div className="flex items-center gap-3">
               <a
