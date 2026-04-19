@@ -7,6 +7,7 @@ import { ArrowLeft, MessageCircle, Pencil, LogOut } from "lucide-react";
 import FavouriteSong from "../../components/FavouriteSong";
 import SharedHistoryHero from "../../components/SharedHistoryHero";
 import PublicScrapbookPreview from "../../components/PublicScrapbookPreview";
+import ProfileActionsMenu from "../../components/ProfileActionsMenu";
 import { extractYouTubeId, getYouTubeThumbnail } from "../../lib/youtube";
 
 const formatGigDate = (dateStr: string | null | undefined) => {
@@ -260,22 +261,35 @@ export default function PublicProfile() {
             </p>
           )}
 
+          {/*
+            Action row. Message + ProfileActionsMenu when viewing others;
+            Edit profile alone when viewing self.
+          */}
           {currentUser && (
-            <a
-              href={isOwnProfile ? "/profile" : `/messages?to=${userId}`}
-              className="inline-flex items-center justify-center gap-2 font-extrabold text-[14px] uppercase tracking-wider rounded-full px-6 py-3 transition-colors"
-              style={{
-                backgroundColor: isOwnProfile ? "#171717" : "#FF0033",
-                color: "#FFFFFF",
-                border: isOwnProfile ? "1px solid #262626" : "none",
-                boxShadow: isOwnProfile
-                  ? "none"
-                  : "0 8px 24px rgba(255, 0, 51, 0.25)",
-              }}
-            >
-              {isOwnProfile ? <Pencil size={16} /> : <MessageCircle size={16} />}
-              {isOwnProfile ? "Edit profile" : "Message"}
-            </a>
+            <div className="flex items-center gap-3">
+              <a
+                href={isOwnProfile ? "/profile" : `/messages?to=${userId}`}
+                className="inline-flex items-center justify-center gap-2 font-extrabold text-[14px] uppercase tracking-wider rounded-full px-6 py-3 transition-colors"
+                style={{
+                  backgroundColor: isOwnProfile ? "#171717" : "#FF0033",
+                  color: "#FFFFFF",
+                  border: isOwnProfile ? "1px solid #262626" : "none",
+                  boxShadow: isOwnProfile
+                    ? "none"
+                    : "0 8px 24px rgba(255, 0, 51, 0.25)",
+                }}
+              >
+                {isOwnProfile ? <Pencil size={16} /> : <MessageCircle size={16} />}
+                {isOwnProfile ? "Edit profile" : "Message"}
+              </a>
+
+              {!isOwnProfile && (
+                <ProfileActionsMenu
+                  targetUserId={userId}
+                  targetDisplayName={profile.display_name || "this user"}
+                />
+              )}
+            </div>
           )}
         </div>
 
@@ -451,11 +465,6 @@ export default function PublicProfile() {
           </div>
         )}
 
-        {/*
-          Logout — own profile only. Sits at the very bottom in a quiet
-          secondary style. Confirms before logging out so it can't be tapped
-          accidentally on the way to the tab bar.
-        */}
         {isOwnProfile && (
           <div className="px-6 pb-12 pt-4">
             <button

@@ -28,6 +28,13 @@ const formatGigDate = (dateStr: string | null | undefined) => {
   };
 };
 
+type BlockedUser = {
+  block_id: string;
+  user_id: string;
+  display_name: string;
+  avatar_url: string | null;
+};
+
 export default function Profile() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -56,6 +63,7 @@ export default function Profile() {
   } | null>(null);
 
   const [upcomingGigs, setUpcomingGigs] = useState<any[]>([]);
+  const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
 
   useEffect(() => {
     const load = async () => {
@@ -107,10 +115,75 @@ export default function Profile() {
 
       setUpcomingGigs(rsvpData || []);
 
+      // Load blocked users for the unblock list at the bottom of this page.
+      await loadBlockedUsers(user.id);
+
       setLoading(false);
     };
     load();
   }, []);
+
+  /**
+   * Fetch the list of users the current user has blocked, hydrated with
+   * display_name and avatar_url for the unblock list UI.
+   */
+  const loadBlockedUsers = async (uid: string) => {
+    const { data: blocks, error } = await supabase
+      .from("blocks")
+      .select("id, blocked_id, created_at")
+      .eq("blocker_id", uid)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("[blocks] load error:", error);
+      return;
+    }
+
+    if (!blocks || blocks.length === 0) {
+      setBlockedUsers([]);
+      return;
+    }
+
+    const blockedIds = blocks.map((b: any) => b.blocked_id);
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, display_name, avatar_url")
+      .in("id", blockedIds);
+
+    const profileMap = new Map(
+      (profiles || []).map((p: any) => [p.id, p])
+    );
+
+    setBlockedUsers(
+      blocks.map((b: any) => {
+        const p = profileMap.get(b.blocked_id);
+        return {
+          block_id: b.id,
+          user_id: b.blocked_id,
+          display_name: p?.display_name || "Unknown user",
+          avatar_url: p?.avatar_url || null,
+        };
+      })
+    );
+  };
+
+  const unblock = async (blockId: string, displayName: string) => {
+    const ok = window.confirm(`Unblock ${displayName}?`);
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("blocks")
+      .delete()
+      .eq("id", blockId);
+
+    if (error) {
+      console.error("[blocks] unblock error:", error);
+      window.alert("Couldn't unblock. Please try again.");
+      return;
+    }
+
+    setBlockedUsers((prev) => prev.filter((b) => b.block_id !== blockId));
+  };
 
   const hasUnsavedChanges = baseline
     ? displayName !== baseline.displayName ||
@@ -214,16 +287,10 @@ export default function Profile() {
     setSaving(false);
   };
 
-  /**
-   * Navigate back to the profile view page. If there are unsaved changes,
-   * confirm before leaving so the user doesn't lose work.
-   */
   const handleBack = () => {
     if (!user) return;
     if (hasUnsavedChanges) {
-      const ok = window.confirm(
-        "You have unsaved changes. Leave anyway?"
-      );
+      const ok = window.confirm("You have unsaved changes. Leave anyway?");
       if (!ok) return;
     }
     window.location.href = `/profile/${user.id}`;
@@ -281,8 +348,6 @@ export default function Profile() {
       )}
 
       <div className="relative z-10">
-        {/* ================ STICKY TOP BAR ================ */}
-        {/* Three-column layout: back link, title, save button */}
         <div
           className="sticky top-0 z-30 flex items-center justify-between px-6"
           style={{
@@ -346,7 +411,6 @@ export default function Profile() {
           </button>
         </div>
 
-        {/* ================ TAGLINE ================ */}
         <div className="px-6 pt-8 pb-2">
           <h1
             className="font-black tracking-[-0.02em] leading-[1.05] mb-2"
@@ -359,7 +423,6 @@ export default function Profile() {
           </p>
         </div>
 
-        {/* ================ AVATAR + NAME BLOCK ================ */}
         <div className="px-6 pt-8 pb-8">
           <div className="flex items-start gap-4 mb-6">
             <label
@@ -542,7 +605,6 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* ================ GOING TO SECTION ================ */}
         <div className="px-6 pb-10">
           <h2
             className="font-black tracking-[-0.02em] leading-[1.05] mb-5"
@@ -635,7 +697,6 @@ export default function Profile() {
           )}
         </div>
 
-        {/* ================ GENRES ================ */}
         <div className="px-6 pb-8">
           <h2
             className="font-black tracking-[-0.02em] leading-[1.05] mb-2"
@@ -674,7 +735,6 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* ================ VENUES ================ */}
         <div className="px-6 pb-8">
           <h2
             className="font-black tracking-[-0.02em] leading-[1.05] mb-2"
@@ -714,9 +774,77 @@ export default function Profile() {
         </div>
 
         {/*
-          Logout removed — it's now on the profile view page instead.
-          Having two would be redundant.
+          BLOCKED USERS section — only renders if there's at least one block.
+          Sits at the bottom of the edit page so the user can find it but it
+          doesn't clutter the page for users who never block anyone.
         */}
+        {blockedUsers.length > 0 && (
+          <div
+            className="px-6 pb-8 pt-6"
+            style={{ borderTop: "1px solid rgba(23, 23, 23, 0.85)" }}
+          >
+            <h2
+              className="font-black tracking-[-0.02em] leading-[1.05] mb-2"
+              style={{ fontSize: "20px", color: "#FAFAFA" }}
+            >
+              BLOCKED
+            </h2>
+            <p
+              className="text-[12px] mb-4"
+              style={{ color: "#A3A3A3" }}
+            >
+              People you've blocked. Tap unblock to undo.
+            </p>
+            <div className="space-y-2">
+              {blockedUsers.map((b) => (
+                <div
+                  key={b.block_id}
+                  className="flex items-center gap-3 p-3 rounded-xl"
+                  style={{
+                    backgroundColor: "rgba(23, 23, 23, 0.85)",
+                    border: "1px solid #262626",
+                  }}
+                >
+                  {b.avatar_url ? (
+                    <img
+                      src={b.avatar_url}
+                      alt=""
+                      className="w-10 h-10 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[14px]"
+                      style={{
+                        backgroundColor: "#262626",
+                        color: "#A3A3A3",
+                      }}
+                    >
+                      {b.display_name[0].toUpperCase()}
+                    </div>
+                  )}
+                  <p
+                    className="flex-1 text-[14px] font-semibold truncate"
+                    style={{ color: "#FAFAFA" }}
+                  >
+                    {b.display_name}
+                  </p>
+                  <button
+                    onClick={() => unblock(b.block_id, b.display_name)}
+                    className="text-[12px] font-semibold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors"
+                    style={{
+                      backgroundColor: "transparent",
+                      border: "1px solid #262626",
+                      color: "#A3A3A3",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Unblock
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <SongPicker
           open={pickerOpen}
